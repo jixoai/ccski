@@ -15,11 +15,16 @@ export interface SearchArgs extends SkillRegistryOptions {
   pluginsRoot?: string;
   json?: boolean;
   noColor?: boolean;
+  color?: boolean;
+  format?: "plain" | "table" | "json";
 }
 
 export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") {
     setColorEnabled(false);
+  }
+  if (argv.color) {
+    setColorEnabled(true);
   }
 
   const registry = new SkillRegistry(buildRegistryOptions(argv));
@@ -37,7 +42,9 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
       })
     : picked.filter((skill) => containsCaseInsensitive(`${skill.name} ${skill.description}`, argv.query));
 
-  if (argv.json) {
+  const format = argv.json ? "json" : argv.format ?? "plain";
+
+  if (format === "json") {
     const payload = filtered.map((skill) => ({
       name: skill.name,
       description: skill.description,
@@ -48,14 +55,18 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
     return;
   }
 
-  const rows = filtered.map((skill) => [highlight(skill.name, argv.query), highlight(skill.description, argv.query), skill.location]);
-
-  if (rows.length === 0) {
+  if (filtered.length === 0) {
     console.log("No skills matched your query.");
     return;
   }
 
-  console.log(renderTable(["NAME", "DESCRIPTION", "LOCATION"], rows));
+  if (format === "table") {
+    const rows = filtered.map((skill) => [highlight(skill.name, argv.query), highlight(skill.description, argv.query), skill.location]);
+    console.log(renderTable(["NAME", "DESCRIPTION", "LOCATION"], rows));
+  } else {
+    const lines = filtered.map((skill) => `- ${highlight(skill.name, argv.query)} (${skill.location}) — ${highlight(skill.description, argv.query)}`);
+    console.log(lines.join("\n"));
+  }
 
   if (argv.content) {
     console.log();

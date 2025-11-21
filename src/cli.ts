@@ -15,8 +15,8 @@ const listModule: CommandModule<unknown, ListArgs> = {
     cmd
       .option("format", {
         alias: "f",
-        choices: ["table", "json"] as const,
-        default: "table" as const,
+        choices: ["plain", "table", "json"] as const,
+        default: "plain" as const,
       })
       .option("scan-default-dirs", {
         type: "boolean",
@@ -47,6 +47,11 @@ const searchModule: CommandModule<unknown, SearchArgs> = {
         type: "boolean",
         default: false,
         description: "Search inside SKILL.md content",
+      })
+      .option("format", {
+        alias: "f",
+        choices: ["plain", "table", "json"] as const,
+        default: "plain" as const,
       })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<SearchArgs>,
   handler: searchCommand,
@@ -82,6 +87,11 @@ await yargs(hideBin(process.argv))
     type: "boolean",
     description: "Disable colored output",
     default: false,
+  })
+  .option("color", {
+    type: "boolean",
+    description: "Force enable colored output",
+    default: undefined,
   })
   .option("json", {
     type: "boolean",

@@ -17,11 +17,15 @@ export interface InfoArgs extends SkillRegistryOptions {
   pluginsRoot?: string;
   json?: boolean;
   noColor?: boolean;
+  color?: boolean;
 }
 
 export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") {
     setColorEnabled(false);
+  }
+  if (argv.color) {
+    setColorEnabled(true);
   }
 
   const registry = new SkillRegistry(buildRegistryOptions(argv));

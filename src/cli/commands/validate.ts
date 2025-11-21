@@ -8,11 +8,15 @@ export interface ValidateArgs {
   path: string;
   json?: boolean;
   noColor?: boolean;
+  color?: boolean;
 }
 
 export async function validateCommand(argv: ArgumentsCamelCase<ValidateArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") {
     setColorEnabled(false);
+  }
+  if (argv.color) {
+    setColorEnabled(true);
   }
 
   const target = resolve(argv.path);
