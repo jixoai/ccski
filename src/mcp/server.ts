@@ -6,6 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { SkillRegistry } from "../core/registry.js";
 import type { SkillRegistryOptions } from "../core/registry.js";
+import type { Skill } from "../types/skill.js";
 
 export interface MCPServerOptions extends SkillRegistryOptions {
   autoRefresh?: boolean;
@@ -39,19 +40,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
     }, interval);
   }
 
-  const buildSkillToolDescription = (): string => {
-    const skills = registry.getAll();
-    const skillList = skills
-      .map((s) => `- ${s.name}: ${s.description}`)
-      .join("\n");
-
-    return `Load a skill by name to get specialized instructions.
-
-Available skills:
-${skillList}
-
-Usage: Invoke with the skill name to load its full content.`;
-  };
+  const buildSkillToolDescription = (): string => buildSkillDescription(registry);
 
   // List tools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -88,17 +77,11 @@ Usage: Invoke with the skill name to load its full content.`;
 
     try {
       const skill = registry.load(skillName);
-
-      const response = `Loading: ${skill.name}
-Base directory: ${skill.path}
-
-${skill.content}`;
-
       return {
         content: [
           {
             type: "text",
-            text: response,
+            text: formatSkillContent(skill),
           },
         ],
       };
@@ -128,4 +111,25 @@ ${skill.content}`;
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+export function buildSkillDescription(registry: SkillRegistry): string {
+  const skills = registry.getAll();
+  const skillList = skills
+    .map((s) => `- ${s.name}: ${s.description}`)
+    .join("\n");
+
+  return `Load a skill by name to get specialized instructions.
+
+Available skills:
+${skillList}
+
+Usage: Invoke with the skill name to load its full content.`;
+}
+
+export function formatSkillContent(skill: Skill): string {
+  return `Loading: ${skill.name}
+Base directory: ${skill.path}
+
+${skill.content}`;
 }
