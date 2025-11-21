@@ -1,0 +1,60 @@
+{
+  "name": "ccski",
+  "version": "0.1.0",
+  "description": "Claude Code Skills Manager - CLI and MCP interface for managing skills across AI agents",
+  "type": "module",
+  "bin": {
+    "ccski": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "ccski": "bun src/cli.ts",
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --coverage",
+    "ts": "tsc --noEmit",
+    "lint": "echo 'Linting not configured yet'",
+    "fmt": "prettier --write ."
+  },
+  "keywords": [
+    "claude-code",
+    "skills",
+    "mcp",
+    "ai-agent",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@leeoniya/ufuzzy": "^1.0.18",
+    "gray-matter": "^4.0.3",
+    "ts-pattern": "^5.5.0",
+    "yargs": "^17.7.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/yargs": "^17.0.33",
+    "@vitest/coverage-v8": "^2.1.8",
+    "prettier": "^3.4.2",
+    "prettier-plugin-organize-imports": "^4.1.0",
+    "prettier-plugin-tailwindcss": "^0.7.1",
+    "tsdown": "^0.16.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

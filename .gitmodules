@@ -1,0 +1,6 @@
+[submodule "references/openskills"]
+	path = references/openskills
+	url = https://github.com/numman-ali/openskills
+[submodule "references/universal-skills"]
+	path = references/universal-skills
+	url = https://github.com/klaudworks/universal-skills
