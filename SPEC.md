@@ -72,7 +72,7 @@ CLI commands are designed for **human users** to manage and inspect skills. For 
 
 ```bash
 # List all available skills
-ccski list [--format=table|json]
+ccski list [--format=json]
 
 # Show skill details (metadata + content preview)
 ccski info <skill-name>
@@ -91,7 +91,7 @@ ccski mcp [--skill-dir <additional-dir>]
 
 **`ccski list`** - List all discovered skills
 ```bash
-ccski list                  # Table format (default)
+ccski list                  # Human-friendly list output (with spacing)
 ccski list --format=json    # JSON format for scripting
 ```
 

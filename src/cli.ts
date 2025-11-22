@@ -15,7 +15,7 @@ const listModule: CommandModule<unknown, ListArgs> = {
     cmd
       .option("format", {
         alias: "f",
-        choices: ["plain", "table", "json"] as const,
+        choices: ["plain", "json"] as const,
         default: "plain" as const,
       })
       .option("scan-default-dirs", {
@@ -50,7 +50,7 @@ const searchModule: CommandModule<unknown, SearchArgs> = {
       })
       .option("format", {
         alias: "f",
-        choices: ["plain", "table", "json"] as const,
+        choices: ["plain", "json"] as const,
         default: "plain" as const,
       })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<SearchArgs>,

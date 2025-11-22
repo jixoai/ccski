@@ -1,6 +1,6 @@
 import type { ArgumentsCamelCase } from "yargs";
 import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
-import { highlight, renderTable, setColorEnabled } from "../../utils/format.js";
+import { highlight, renderList, setColorEnabled } from "../../utils/format.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { buildRegistryOptions } from "../registry-options.js";
@@ -16,7 +16,7 @@ export interface SearchArgs extends SkillRegistryOptions {
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
-  format?: "plain" | "table" | "json";
+  format?: "plain" | "json";
 }
 
 export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promise<void> {
@@ -60,13 +60,16 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
     return;
   }
 
-  if (format === "table") {
-    const rows = filtered.map((skill) => [highlight(skill.name, argv.query), highlight(skill.description, argv.query), skill.location]);
-    console.log(renderTable(["NAME", "DESCRIPTION", "LOCATION"], rows));
-  } else {
-    const lines = filtered.map((skill) => `- ${highlight(skill.name, argv.query)} (${skill.location}) — ${highlight(skill.description, argv.query)}`);
-    console.log(lines.join("\n"));
-  }
+  console.log(`Matches (${filtered.length})\n`);
+  console.log(
+    renderList(
+      filtered.map((skill) => ({
+        title: highlight(skill.name, argv.query),
+        meta: `(${skill.location})`,
+        description: highlight(skill.description, argv.query),
+      }))
+    )
+  );
 
   if (argv.content) {
     console.log();

@@ -11,39 +11,6 @@ const colors = {
   green: (value: string): string => (colorEnabled ? `\x1b[32m${value}\x1b[39m` : value),
 };
 
-export type TableRow = string[];
-
-export function renderTable(headers: string[], rows: TableRow[]): string {
-  const widths = headers.map((header, columnIndex) => {
-    const values = rows.map((row) => row[columnIndex] ?? "");
-    return Math.max(header.length, ...values.map((v) => visualLength(v)));
-  });
-
-  const renderRow = (cells: string[]): string =>
-    `| ${cells.map((cell, index) => pad(cell, widths[index] ?? 0)).join(" | ")} |`;
-
-  const separator = `|-` + widths.map((w) => "-".repeat(w)).join("-|-") + "-|";
-
-  const lines = [
-    renderRow(headers.map(colors.bold)),
-    separator,
-    ...rows.map((row) => renderRow(row)),
-  ];
-
-  return lines.join("\n");
-}
-
-function pad(value: string, width: number): string {
-  const length = visualLength(value);
-  if (length >= width) return value;
-  return value + " ".repeat(width - length);
-}
-
-function visualLength(value: string): number {
-  // Strip ANSI sequences for width calculation
-  return value.replace(/\x1b\[[0-9;]*m/g, "").length;
-}
-
 export function highlight(text: string, query: string): string {
   if (!colorEnabled) return text;
   const escaped = escapeRegExp(query);
@@ -77,4 +44,35 @@ export function formatBytes(bytes: number): string {
     unitIndex += 1;
   } while (size >= 1024 && unitIndex < units.length - 1);
   return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+export interface ListItem {
+  title: string;
+  description?: string;
+  meta?: string;
+}
+
+export function renderList(items: ListItem[]): string {
+  if (items.length === 0) return "";
+
+  const titleWidth = Math.max(...items.map((item) => visibleLength(item.title)));
+
+  return items
+    .map((item) => {
+      const title = padAnsi(item.title, titleWidth);
+      const meta = item.meta ? `  ${dim(item.meta)}` : "";
+      const description = item.description ? `\n    ${item.description}` : "";
+      return `- ${title}${meta}${description}`;
+    })
+    .join("\n\n");
+}
+
+function padAnsi(value: string, width: number): string {
+  const length = visibleLength(value);
+  if (length >= width) return value;
+  return value + " ".repeat(width - length);
+}
+
+function visibleLength(value: string): number {
+  return value.replace(/\x1b\[[0-9;]*m/g, "").length;
 }

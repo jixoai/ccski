@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { highlight, renderTable, setColorEnabled } from "../src/utils/format.js";
+import { highlight, renderList, setColorEnabled } from "../src/utils/format.js";
 
 describe("format helpers", () => {
   it("strips color when disabled", () => {
@@ -9,10 +9,18 @@ describe("format helpers", () => {
     expect(result).toBe("hello world");
   });
 
-  it("renders simple table without box drawing", () => {
+  it("renders spaced list entries with padding", () => {
     setColorEnabled(false);
-    const table = renderTable(["A", "B"], [["1", "2"]]);
-    expect(table).toContain("| A | B |");
-    expect(table).toContain("| 1 | 2 |");
+    const output = renderList([
+      { title: "alpha", description: "first item", meta: "(local)" },
+      { title: "bravo-long", description: "second item" },
+    ]);
+
+    const entries = output.split("\n\n");
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toContain("- alpha");
+    expect(entries[0]).toContain("(local)");
+    expect(entries[0]).toContain("    first item");
+    expect(entries[1]).toContain("- bravo-long");
   });
 });
