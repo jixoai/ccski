@@ -104,7 +104,15 @@ const installModule: CommandModule<unknown, InstallArgs> = {
       .positional("source", { type: "string", demandOption: true })
       .option("global", { type: "boolean", default: false, description: "Install to ~/.claude/skills" })
       .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" })
-      .option("override", { type: "boolean", default: false, description: "Alias for --force" }) as Argv<InstallArgs>,
+      .option("override", { type: "boolean", default: false, description: "Alias for --force" })
+      .option("use", { type: "string", description: "Explicit SKILL.md or marketplace.json path inside source" })
+      .option("interactive", {
+        alias: "i",
+        type: "boolean",
+        default: false,
+        description: "Interactively choose skills (non-TTY will auto-select all)",
+      })
+      .option("all", { alias: "a", type: "boolean", default: false, description: "Install all discovered skills" }) as Argv<InstallArgs>,
   handler: installCommand,
 };
 

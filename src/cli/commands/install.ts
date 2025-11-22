@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
 import { error, setColorEnabled, success } from "../../utils/format.js";
+import { rankStrings } from "../../utils/search.js";
 
 export interface InstallArgs {
   source: string;
@@ -13,6 +14,8 @@ export interface InstallArgs {
   force?: boolean;
   override?: boolean;
   use?: string;
+  interactive?: boolean;
+  all?: boolean;
   noColor?: boolean;
   color?: boolean;
 }
@@ -45,6 +48,12 @@ export function installSkillDir(skillDir: string, targetRoot: string, force = fa
   return destDir;
 }
 
+interface SkillEntry {
+  name: string;
+  description: string;
+  dir: string;
+}
+
 export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
@@ -57,13 +66,15 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     const targets = resolveInstallTargets(materialized.base, argv.use ?? materialized.useHint);
 
     if (targets.length === 0) {
-      throw new Error(`No skills found to install in ${localPath}`);
+      throw new Error(`No skills found to install in ${materialized.base}`);
     }
 
     const force = argv.force === true || argv.override === true;
+    const selection = selectSkills(targets, argv, materialized.base);
+
     const installed: string[] = [];
-    for (const dir of targets) {
-      installed.push(installSkillDir(dir, targetRoot, force));
+    for (const entry of selection) {
+      installed.push(installSkillDir(entry.dir, targetRoot, force));
     }
 
     console.log(success(`Installed ${installed.length} skill(s):`));
@@ -227,4 +238,70 @@ function resolveInstallTargets(root: string, usePath?: string): string[] {
   }
 
   throw new Error(`No SKILL.md or marketplace.json found in ${base}${usePath ? ` (use: ${usePath})` : ""}`);
+}
+
+function buildSkillEntries(dirs: string[]): SkillEntry[] {
+  return dirs.map((dir) => {
+    const parsed = parseSkillFile(join(dir, "SKILL.md"));
+    return {
+      name: parsed.frontmatter.name,
+      description: parsed.frontmatter.description ?? "",
+      dir,
+    };
+  });
+}
+
+function parseSelectors(argv: ArgumentsCamelCase<InstallArgs>): string[] {
+  const extras = argv._ ? argv._.slice(1) : [];
+  return extras
+    .flatMap((val) => String(val).split(/[\/,]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function selectSkills(targetDirs: string[], argv: ArgumentsCamelCase<InstallArgs>, base: string): SkillEntry[] {
+  const entries = buildSkillEntries(targetDirs);
+  if (entries.length === 1) return entries;
+
+  const selectors = parseSelectors(argv);
+
+  if (argv.all) return entries;
+  if (argv.interactive) return entries; // placeholder: non-interactive environments auto-select all
+
+  if (selectors.length === 0) {
+    const listing = entries.map((e) => `- ${e.name}: ${e.description}`).join("\n");
+    throw new Error(
+      `Multiple skills found (${entries.length}) in ${base}. Specify names, use --all, or --interactive.\nAvailable skills:\n${listing}`
+    );
+  }
+
+  const selected: SkillEntry[] = [];
+  const names = entries.map((e) => e.name);
+
+  for (const raw of selectors) {
+    const sel = raw.trim();
+    const lower = sel.toLowerCase();
+
+    let match: SkillEntry | undefined;
+    const exact = entries.find((e) => e.name.toLowerCase() === lower);
+    if (exact) {
+      match = exact;
+    } else {
+      const partial = entries.filter((e) => e.name.toLowerCase().includes(lower));
+      if (partial.length === 1) match = partial[0];
+    }
+
+    if (!match) {
+      const rankedIdx = rankStrings(names, sel);
+      const ranked = (rankedIdx.length ? rankedIdx : names.map((_, idx) => idx)).slice(0, 3).map((i) => names[i]!);
+      const hint = ranked.length ? ` Did you mean: ${ranked.join(", ")}?` : "";
+      throw new Error(`Skill '${sel}' not found.${hint}`);
+    }
+
+    if (!selected.some((s) => s.name === match!.name)) {
+      selected.push(match);
+    }
+  }
+
+  return selected;
 }

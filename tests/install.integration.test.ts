@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installCommand } from "../src/cli/commands/install.js";
 
@@ -65,9 +65,11 @@ describe("installCommand end-to-end", () => {
   beforeEach(() => {
     cwd = mkdtempSync(join(tmpdir(), "ccski-install-cwd-"));
     process.chdir(cwd);
+    process.exitCode = 0;
   });
 
   afterEach(() => {
+    process.exitCode = 0;
     process.chdir(originalCwd);
   });
 
@@ -79,7 +81,8 @@ describe("installCommand end-to-end", () => {
       global: false,
       force: false,
       override: false,
-      _: [],
+      all: true,
+      _: [`file://${repo}`],
       $0: "ccski",
     } as any);
 
@@ -130,6 +133,7 @@ describe("installCommand end-to-end", () => {
       global: false,
       force: false,
       override: false,
+      all: true,
       _: [],
       $0: "ccski",
     } as any);
@@ -137,5 +141,60 @@ describe("installCommand end-to-end", () => {
     const installed = listInstalled(join(cwd, ".claude/skills"));
     expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design"]);
   });
-});
 
+  it("requires selection when multiple skills and no flag", async () => {
+    const repo = createRepoWithMarketplace();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await installCommand({
+      source: `file://${repo}`,
+      global: false,
+      force: false,
+      override: false,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    expect(process.exitCode).toBe(1);
+    expect(errorSpy.mock.calls.flat().join(" ")).toMatch(/Multiple skills found/);
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("installs selected subset by name", async () => {
+    const repo = createRepoWithMarketplace();
+
+    await installCommand({
+      source: `file://${repo}`,
+      global: false,
+      force: false,
+      override: false,
+      _: [`file://${repo}`, "canvas"],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(join(cwd, ".claude/skills"));
+    expect(installed).toEqual(["canvas-design"]);
+  });
+
+  it("suggests on typo", async () => {
+    const repo = createRepoWithMarketplace();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await installCommand({
+      source: `file://${repo}`,
+      global: false,
+      force: false,
+      override: false,
+      _: [`file://${repo}`, "algorthmic-art"],
+      $0: "ccski",
+    } as any);
+
+    const message = errorSpy.mock.calls.flat().join(" ");
+    expect(process.exitCode).toBe(1);
+    expect(message).toMatch(/Did you mean: algorithmic-art/);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+});
