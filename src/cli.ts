@@ -131,7 +131,7 @@ await yargs(hideBin(process.argv))
     type: "string",
     description: "Root directory for plugin install paths",
   })
-.command(listModule)
+  .command(listModule)
   .command(infoModule)
   .command(searchModule)
   .command(validateModule)

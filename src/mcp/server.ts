@@ -261,9 +261,6 @@ export function formatSkillContent(skill: Skill): string {
     `path: ${skill.path}`,
     `location: ${skill.location}`,
     skill.pluginInfo ? `plugin: ${skill.pluginInfo.pluginName}@${skill.pluginInfo.marketplace}` : null,
-    skill.hasReferences ? "references: true" : null,
-    skill.hasScripts ? "scripts: true" : null,
-    skill.hasAssets ? "assets: true" : null,
   ]
     .filter(Boolean)
     .join("\n");
