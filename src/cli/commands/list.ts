@@ -1,9 +1,9 @@
 import type { ArgumentsCamelCase } from "yargs";
-import { renderList, setColorEnabled, dim } from "../../utils/format.js";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
-import { buildRegistryOptions } from "../registry-options.js";
 import type { SkillLocation } from "../../types/skill.js";
+import { colors, dim, renderList, setColorEnabled } from "../../utils/format.js";
+import { buildRegistryOptions } from "../registry-options.js";
 
 export interface ListArgs extends SkillRegistryOptions {
   format?: "plain" | "json";
@@ -25,7 +25,7 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
 
   const skills = registry.getAll().sort((a, b) => a.name.localeCompare(b.name));
 
-  const format = argv.json ? "json" : argv.format ?? "plain";
+  const format = argv.json ? "json" : (argv.format ?? "plain");
 
   if (format === "json") {
     console.log(JSON.stringify(skills, null, 2));
@@ -50,12 +50,13 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     const list = groups[location];
     if (!list.length) continue;
 
-    sections.push(`${labels[location]} (${list.length})`);
+    sections.push(`${colors.bold(labels[location])} (${list.length})`);
     sections.push(
       renderList(
         list.map((skill) => ({
           title: skill.name,
-          meta: location === "plugin" ? skill.pluginInfo?.pluginName ?? dim(location) : dim(location),
+          meta:
+            location === "plugin" ? (skill.pluginInfo?.pluginName ?? dim(location)) : dim(location),
           description: skill.description,
         }))
       )
@@ -67,5 +68,5 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     return;
   }
 
-  console.log(`Skills (${skills.length})\n` + sections.join("\n\n"));
+  console.log(`${colors.bold("Skills")} (${skills.length})\n` + sections.join("\n\n"));
 }

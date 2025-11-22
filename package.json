@@ -35,25 +35,26 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@leeoniya/ufuzzy": "^1.0.18",
-    "@modelcontextprotocol/sdk": "^1.0.4",
     "colorette": "^2.0.20",
-    "gray-matter": "^4.0.3",
-    "ts-pattern": "^5.5.0",
-    "yargs": "^17.7.2",
-    "zod": "^3.24.1"
+    "string-width": "^7.2.0"
   },
   "devDependencies": {
+    "@leeoniya/ufuzzy": "^1.0.18",
+    "@modelcontextprotocol/sdk": "^1.0.4",
     "@types/node": "^22.10.2",
     "@types/yargs": "^17.0.33",
     "@vitest/coverage-v8": "^2.1.8",
+    "gray-matter": "^4.0.3",
     "prettier": "^3.4.2",
     "prettier-plugin-organize-imports": "^4.1.0",
     "prettier-plugin-tailwindcss": "^0.7.1",
+    "ts-pattern": "^5.5.0",
     "tsdown": "^0.16.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "yargs": "^17.7.2",
+    "zod": "^3.24.1"
   },
   "engines": {
     "node": ">=20.0.0"

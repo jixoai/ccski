@@ -1,7 +1,7 @@
 import { createColors, isColorSupported } from "colorette";
 
 let colorEnabled = isColorSupported && process.env.FORCE_COLOR !== "0";
-let colors = createColors({ useColor: colorEnabled });
+export let colors = createColors({ useColor: colorEnabled });
 
 export function setColorEnabled(enabled: boolean): void {
   colorEnabled = enabled;
@@ -59,7 +59,7 @@ export function renderList(items: ListItem[]): string {
       const title = padAnsi(item.title, titleWidth);
       const meta = item.meta ? `  ${dim(item.meta)}` : "";
       const description = item.description ? `\n    ${item.description}` : "";
-      return `- ${title}${meta}${description}`;
+      return `- ${colors.blue(title)}${meta}${description}`;
     })
     .join("\n\n");
 }
