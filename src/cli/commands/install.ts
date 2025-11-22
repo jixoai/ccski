@@ -149,6 +149,25 @@ async function materializeSource(source: string): Promise<MaterializedSource> {
   return { base: normalizeSourcePath(source) };
 }
 
+function resolveSkillPath(baseDir: string, rel: string): string | null {
+  const cleaned = rel.replace(/^\.\//, "");
+
+  const candidates: string[] = [];
+  if (cleaned.endsWith("SKILL.md")) {
+    candidates.push(dirname(join(baseDir, cleaned)));
+    candidates.push(dirname(join(baseDir, "..", cleaned)));
+  } else {
+    candidates.push(join(baseDir, cleaned));
+    candidates.push(join(baseDir, "..", cleaned));
+  }
+
+  for (const dir of candidates) {
+    if (existsSync(join(dir, "SKILL.md"))) return dir;
+  }
+
+  return null;
+}
+
 function marketplaceSkills(marketplacePath: string): string[] {
   const data = JSON.parse(readFileSync(marketplacePath, "utf8"));
   const dir = dirname(marketplacePath);
@@ -159,9 +178,8 @@ function marketplaceSkills(marketplacePath: string): string[] {
     if (!plugin || !Array.isArray(plugin.skills)) continue;
     for (const rel of plugin.skills) {
       if (typeof rel !== "string") continue;
-      const cleaned = rel.replace(/^\.\//, "");
-      const full = rel.endsWith("SKILL.md") ? dirname(join(dir, cleaned)) : join(dir, cleaned);
-      skillPaths.add(full);
+      const resolved = resolveSkillPath(dir, rel);
+      if (resolved) skillPaths.add(resolve(resolved));
     }
   }
   return Array.from(skillPaths);
@@ -170,6 +188,11 @@ function marketplaceSkills(marketplacePath: string): string[] {
 function resolveInstallTargets(root: string, usePath?: string): string[] {
   const base = resolve(root);
   const candidatePath = usePath ? resolve(base, usePath) : base;
+
+  // base is directly a SKILL.md file
+  if (!usePath && base.toLowerCase().endsWith("skill.md") && existsSync(base)) {
+    return [dirname(base)];
+  }
 
   // explicit SKILL.md file
   if (usePath && candidatePath.toLowerCase().endsWith("skill.md") && existsSync(candidatePath)) {
@@ -185,7 +208,7 @@ function resolveInstallTargets(root: string, usePath?: string): string[] {
   }
 
   // explicit marketplace file
-  if (usePath && existsSync(candidatePath) && candidatePath.endsWith("marketplace.json")) {
+  if ((usePath || !statSync(base).isDirectory()) && existsSync(candidatePath) && candidatePath.endsWith("marketplace.json")) {
     return marketplaceSkills(candidatePath);
   }
 
