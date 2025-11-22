@@ -1,8 +1,9 @@
 import type { ArgumentsCamelCase } from "yargs";
-import { renderList, setColorEnabled } from "../../utils/format.js";
+import { renderList, setColorEnabled, dim } from "../../utils/format.js";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import { buildRegistryOptions } from "../registry-options.js";
+import type { SkillLocation } from "../../types/skill.js";
 
 export interface ListArgs extends SkillRegistryOptions {
   format?: "plain" | "json";
@@ -31,19 +32,40 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     return;
   }
 
-  if (skills.length === 0) {
+  const groups: Record<SkillLocation, typeof skills> = { project: [], user: [], plugin: [] };
+  skills.forEach((skill) => {
+    groups[skill.location]?.push(skill);
+  });
+
+  const labels: Record<SkillLocation, string> = {
+    project: "Project skills",
+    user: "User skills",
+    plugin: "Plugin skills",
+  };
+
+  const sections: string[] = [];
+  const order: SkillLocation[] = ["project", "user", "plugin"];
+
+  for (const location of order) {
+    const list = groups[location];
+    if (!list.length) continue;
+
+    sections.push(`${labels[location]} (${list.length})`);
+    sections.push(
+      renderList(
+        list.map((skill) => ({
+          title: skill.name,
+          meta: location === "plugin" ? skill.pluginInfo?.pluginName ?? dim(location) : dim(location),
+          description: skill.description,
+        }))
+      )
+    );
+  }
+
+  if (sections.length === 0) {
     console.log("No skills found.");
     return;
   }
 
-  console.log(`Skills (${skills.length})\n`);
-  console.log(
-    renderList(
-      skills.map((skill) => ({
-        title: skill.name,
-        meta: `(${skill.location})`,
-        description: skill.description,
-      }))
-    )
-  );
+  console.log(`Skills (${skills.length})\n` + sections.join("\n\n"));
 }

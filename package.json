@@ -20,7 +20,7 @@
     "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest --coverage",
+    "test:coverage": "vitest run --coverage",
     "ts": "tsc --noEmit",
     "lint": "echo 'Linting not configured yet'",
     "fmt": "prettier --write ."
@@ -35,8 +35,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
     "@leeoniya/ufuzzy": "^1.0.18",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "colorette": "^2.0.20",
     "gray-matter": "^4.0.3",
     "ts-pattern": "^5.5.0",
     "yargs": "^17.7.2",

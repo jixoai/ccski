@@ -1,15 +1,12 @@
-let colorEnabled = process.env.FORCE_COLOR !== "0" && process.stdout.isTTY;
+import { createColors, isColorSupported } from "colorette";
+
+let colorEnabled = isColorSupported && process.env.FORCE_COLOR !== "0";
+let colors = createColors({ useColor: colorEnabled });
 
 export function setColorEnabled(enabled: boolean): void {
   colorEnabled = enabled;
+  colors = createColors({ useColor: colorEnabled });
 }
-
-const colors = {
-  bold: (value: string): string => (colorEnabled ? `\x1b[1m${value}\x1b[22m` : value),
-  red: (value: string): string => (colorEnabled ? `\x1b[31m${value}\x1b[39m` : value),
-  gray: (value: string): string => (colorEnabled ? `\x1b[90m${value}\x1b[39m` : value),
-  green: (value: string): string => (colorEnabled ? `\x1b[32m${value}\x1b[39m` : value),
-};
 
 export function highlight(text: string, query: string): string {
   if (!colorEnabled) return text;
@@ -19,15 +16,15 @@ export function highlight(text: string, query: string): string {
 }
 
 export function dim(text: string): string {
-  return colors.gray(text);
+  return colorEnabled ? colors.dim(text) : text;
 }
 
 export function success(text: string): string {
-  return colors.green(text);
+  return colorEnabled ? colors.green(text) : text;
 }
 
 export function error(text: string): string {
-  return colors.red(text);
+  return colorEnabled ? colors.red(text) : text;
 }
 
 function escapeRegExp(value: string): string {
