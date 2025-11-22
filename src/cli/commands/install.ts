@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
-import { error, setColorEnabled, success } from "../../utils/format.js";
+import { error, renderList, setColorEnabled, success } from "../../utils/format.js";
 import { rankStrings } from "../../utils/search.js";
 
 export interface InstallArgs {
@@ -274,7 +274,7 @@ function selectSkills(
   if (argv.interactive) return entries; // placeholder: non-interactive environments auto-select all
 
   if (selectors.length === 0) {
-    const listing = entries.map((e) => `- ${e.name}: ${e.description}`).join("\n");
+    const listing = renderList(entries.map((e) => ({ title: e.name, description: e.description })));
     throw new Error(
       `Multiple skills found (${entries.length}) in ${sourceLabel}. Specify names, use --all, or --interactive.\nAvailable skills:\n${listing}`
     );
