@@ -1,4 +1,5 @@
 import { createColors, isColorSupported } from "colorette";
+import { wrap } from "../word-wrap/index.js";
 
 let colorEnabled = isColorSupported && process.env.FORCE_COLOR !== "0";
 export let colors = createColors({ useColor: colorEnabled });
@@ -58,7 +59,17 @@ export function renderList(items: ListItem[]): string {
     .map((item) => {
       const title = padAnsi(item.title, titleWidth);
       const meta = item.meta ? `  ${dim(item.meta)}` : "";
-      const description = item.description ? `\n    ${item.description}` : "";
+      const wrapWidth = Math.max(20, Math.min(process.stdout?.columns ?? 80, 120) - 4);
+      const description = item.description
+        ? "\n    " +
+          wrap(item.description, {
+            width: wrapWidth,
+            indent: "",
+            newline: "\n",
+            trim: true,
+            cut: false,
+          }).replace(/\n/g, "\n    ")
+        : "";
       return `- ${colors.blue(title)}${meta}${description}`;
     })
     .join("\n\n");
