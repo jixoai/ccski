@@ -1,19 +1,24 @@
 import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { execSync } from "node:child_process";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
-import { colors, error, setColorEnabled, success } from "../../utils/format.js";
+import { error, setColorEnabled, success } from "../../utils/format.js";
 
 export interface InstallArgs {
   source: string;
   global?: boolean;
   force?: boolean;
+  override?: boolean;
   noColor?: boolean;
   color?: boolean;
 }
 
 function resolveSourceSkill(source: string): { dir: string; skillFile: string } {
-  const resolved = resolve(source);
+  const normalized = source.startsWith("file://") ? new URL(source).pathname : source;
+  const resolved = resolve(normalized);
   const stats = statSync(resolved);
 
   if (stats.isFile()) {
@@ -59,11 +64,63 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
   if (argv.color) setColorEnabled(true);
 
   try {
-    const targetRoot = argv.global ? join(process.env.HOME ?? "~", ".claude/skills") : join(process.cwd(), ".claude/skills");
-    const dest = installSkill(argv.source, targetRoot, argv.force === true);
+    const targetRoot = argv.global
+      ? join(process.env.HOME ?? "~", ".claude/skills")
+      : join(process.cwd(), ".claude/skills");
+    const localPath = await materializeSource(argv.source);
+    const dest = installSkill(localPath, targetRoot, argv.force === true || argv.override === true);
     console.log(success(`Installed skill to ${dest}`));
   } catch (err) {
     console.error(error(`Install failed: ${err instanceof Error ? err.message : String(err)}`));
     process.exitCode = 1;
   }
+}
+
+function parseGithubTree(url: URL): { repo: string; ref?: string; subdir?: string } | null {
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length >= 4 && parts[2] === "tree") {
+    const [owner, repo, , ref, ...rest] = parts;
+    return {
+      repo: `https://github.com/${owner}/${repo}.git`,
+      ref,
+      subdir: rest.length ? rest.join("/") : undefined,
+    };
+  }
+  return null;
+}
+
+async function materializeSource(source: string): Promise<string> {
+  if (source.startsWith("file://")) return new URL(source).pathname;
+
+  if (source.startsWith("http://") || source.startsWith("https://") || source.endsWith(".git")) {
+    let repo = source;
+    let ref: string | undefined;
+    let subdir: string | undefined;
+
+    try {
+      const url = new URL(source);
+      const gh = parseGithubTree(url);
+      if (gh) {
+        repo = gh.repo;
+        ref = gh.ref;
+        subdir = gh.subdir;
+      }
+    } catch {
+      // fall through, treat as raw git URL
+    }
+
+    const tmp = mkdtempSync(join(tmpdir(), "ccski-install-"));
+
+    const clone = ["git", "clone", "--depth", "1"];
+    if (ref) {
+      clone.push("--branch", ref);
+    }
+    clone.push(repo, tmp);
+
+    execSync(clone.join(" "), { stdio: "ignore" });
+
+    return subdir ? join(tmp, subdir) : tmp;
+  }
+
+  return source;
 }

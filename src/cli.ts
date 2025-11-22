@@ -103,7 +103,8 @@ const installModule: CommandModule<unknown, InstallArgs> = {
     cmd
       .positional("source", { type: "string", demandOption: true })
       .option("global", { type: "boolean", default: false, description: "Install to ~/.claude/skills" })
-      .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" }) as Argv<InstallArgs>,
+      .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" })
+      .option("override", { type: "boolean", default: false, description: "Alias for --force" }) as Argv<InstallArgs>,
   handler: installCommand,
 };
 
