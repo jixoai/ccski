@@ -70,7 +70,7 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     }
 
     const force = argv.force === true || argv.override === true;
-    const selection = selectSkills(targets, argv, materialized.base);
+    const selection = selectSkills(targets, argv, argv.source, materialized.base);
 
     const installed: string[] = [];
     for (const entry of selection) {
@@ -259,7 +259,12 @@ function parseSelectors(argv: ArgumentsCamelCase<InstallArgs>): string[] {
     .filter(Boolean);
 }
 
-function selectSkills(targetDirs: string[], argv: ArgumentsCamelCase<InstallArgs>, base: string): SkillEntry[] {
+function selectSkills(
+  targetDirs: string[],
+  argv: ArgumentsCamelCase<InstallArgs>,
+  sourceLabel: string,
+  base: string
+): SkillEntry[] {
   const entries = buildSkillEntries(targetDirs);
   if (entries.length === 1) return entries;
 
@@ -271,7 +276,7 @@ function selectSkills(targetDirs: string[], argv: ArgumentsCamelCase<InstallArgs
   if (selectors.length === 0) {
     const listing = entries.map((e) => `- ${e.name}: ${e.description}`).join("\n");
     throw new Error(
-      `Multiple skills found (${entries.length}) in ${base}. Specify names, use --all, or --interactive.\nAvailable skills:\n${listing}`
+      `Multiple skills found (${entries.length}) in ${sourceLabel}. Specify names, use --all, or --interactive.\nAvailable skills:\n${listing}`
     );
   }
 
