@@ -7,6 +7,7 @@ import { listCommand, type ListArgs } from "./cli/commands/list.js";
 import { mcpCommand, type McpArgs } from "./cli/commands/mcp.js";
 import { searchCommand, type SearchArgs } from "./cli/commands/search.js";
 import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
+import { installCommand, type InstallArgs } from "./cli/commands/install.js";
 
 const listModule: CommandModule<unknown, ListArgs> = {
   command: "list",
@@ -95,6 +96,17 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
   handler: mcpCommand,
 };
 
+const installModule: CommandModule<unknown, InstallArgs> = {
+  command: "install <source>",
+  describe: "Install a skill into .claude/skills",
+  builder: (cmd: Argv<unknown>): Argv<InstallArgs> =>
+    cmd
+      .positional("source", { type: "string", demandOption: true })
+      .option("global", { type: "boolean", default: false, description: "Install to ~/.claude/skills" })
+      .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" }) as Argv<InstallArgs>,
+  handler: installCommand,
+};
+
 await yargs(hideBin(process.argv))
   .scriptName("ccski")
   .usage("$0 <command> [options]")
@@ -136,6 +148,7 @@ await yargs(hideBin(process.argv))
   .command(searchModule)
   .command(validateModule)
   .command(mcpModule)
+  .command(installModule)
   .demandCommand(1, "Please provide a command")
   .strict()
   .help()
