@@ -76,6 +76,21 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
         default: 30000,
       })
       .option("no-refresh", { type: "boolean", description: "Disable auto refresh" })
+      .option("transport", {
+        choices: ["stdio", "http", "sse"] as const,
+        default: "stdio" as const,
+        description: "Transport for MCP server",
+      })
+      .option("port", {
+        type: "number",
+        description: "Port for HTTP/SSE transport",
+        default: 3000,
+      })
+      .option("host", {
+        type: "string",
+        description: "Host for HTTP/SSE transport",
+        default: "127.0.0.1",
+      })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<McpArgs>,
   handler: mcpCommand,
 };

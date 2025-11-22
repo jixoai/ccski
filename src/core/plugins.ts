@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import type { InstalledPlugins, SkillMetadata } from "../types/index.js";
 import { InstalledPluginsSchema } from "../types/schemas.js";
+import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
 const PLUGINS_FILE = join(homedir(), ".claude/plugins/installed_plugins.json");
@@ -46,14 +47,17 @@ export function loadInstalledPlugins(
     const validation = InstalledPluginsSchema.safeParse(json);
 
     if (!validation.success) {
-      console.warn(`Warning: Invalid installed_plugins.json format:`, validation.error);
+      console.warn(
+        colors.yellow(`Warning: Invalid installed_plugins.json format:`),
+        validation.error
+      );
       diagnostics?.warnings.push("Invalid installed_plugins.json format");
       return null;
     }
 
     return validation.data;
   } catch (error) {
-    console.warn(`Warning: Failed to load installed_plugins.json:`, error);
+    console.warn(colors.yellow(`Warning: Failed to load installed_plugins.json:`), error);
     diagnostics?.warnings.push(
       `Failed to load installed_plugins.json: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -85,7 +89,7 @@ function findSkillFiles(dir: string, diagnostics: PluginDiscoveryDiagnostics): s
       }
     }
   } catch (error) {
-    console.warn(`Warning: Failed to scan plugin directory ${dir}:`, error);
+    console.warn(colors.yellow(`Warning: Failed to scan plugin directory ${dir}:`), error);
     diagnostics.warnings.push(
       `Failed to scan plugin directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -97,9 +101,7 @@ function findSkillFiles(dir: string, diagnostics: PluginDiscoveryDiagnostics): s
 /**
  * Discover skills from installed plugins
  */
-export function discoverPluginSkills(
-  options: PluginDiscoveryOptions = {}
-): PluginDiscoveryResult {
+export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): PluginDiscoveryResult {
   const diagnostics: PluginDiscoveryDiagnostics = {
     scannedPlugins: [],
     warnings: [],
@@ -148,7 +150,7 @@ export function discoverPluginSkills(
           },
         });
       } catch (error) {
-        console.warn(`Warning: Failed to parse plugin skill ${skillFile}:`, error);
+        console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
         diagnostics.warnings.push(
           `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
         );

@@ -1,8 +1,9 @@
-import { existsSync, readdirSync } from "node:fs";
 import type { Dirent } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Skill, SkillLocation, SkillMetadata } from "../types/skill.js";
+import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
 /**
@@ -61,11 +62,17 @@ function determineLocation(dirPath: string): SkillLocation {
   const cwd = process.cwd();
   const home = homedir();
 
-  if (normalizedPath.startsWith(join(cwd, ".agent")) || normalizedPath.startsWith(join(cwd, ".claude"))) {
+  if (
+    normalizedPath.startsWith(join(cwd, ".agent")) ||
+    normalizedPath.startsWith(join(cwd, ".claude"))
+  ) {
     return "project";
   }
 
-  if (normalizedPath.startsWith(join(home, ".agent")) || normalizedPath.startsWith(join(home, ".claude"))) {
+  if (
+    normalizedPath.startsWith(join(home, ".agent")) ||
+    normalizedPath.startsWith(join(home, ".claude"))
+  ) {
     return "user";
   }
 
@@ -90,7 +97,9 @@ function collectSkillDirectories(
     entries = readdirSync(root, { withFileTypes: true }) as Array<Dirent<string>>;
   } catch (error) {
     console.warn(
-      `Warning: Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`
+      colors.yellow(
+        `Warning: Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`
+      )
     );
     diagnostics.warnings.push(
       `Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`
@@ -149,7 +158,9 @@ export function scanSkillDirectory(
       });
     } catch (error) {
       console.warn(
-        `Warning: Failed to parse ${skillFilePath}: ${error instanceof Error ? error.message : String(error)}`
+        colors.yellow(
+          `Warning: Failed to parse ${skillFilePath}: ${error instanceof Error ? error.message : String(error)}`
+        )
       );
       diagnostics.warnings.push(
         `Failed to parse ${skillFilePath}: ${error instanceof Error ? error.message : String(error)}`

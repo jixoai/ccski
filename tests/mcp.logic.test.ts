@@ -32,8 +32,8 @@ describe("mcp helpers", () => {
     const skill = registry.load("bravo");
 
     const formatted = formatSkillContent(skill);
-    expect(formatted).toContain(`Loading: ${skill.name}`);
-    expect(formatted).toContain(`Base directory: ${skill.path}`);
+    expect(formatted).toContain(`name: ${skill.name}`);
+    expect(formatted).toContain(`path: ${skill.path}`);
     expect(formatted).toContain("bravo description");
   });
 });

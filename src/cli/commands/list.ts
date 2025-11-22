@@ -50,7 +50,7 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     const list = groups[location];
     if (!list.length) continue;
 
-    sections.push(`${colors.bold(labels[location])} (${list.length})`);
+    sections.push(`${colors.underline(colors.bold(labels[location]))} (${list.length})`);
     sections.push(
       renderList(
         list.map((skill) => ({

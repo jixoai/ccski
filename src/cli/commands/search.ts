@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase } from "yargs";
-import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
-import { highlight, renderList, setColorEnabled } from "../../utils/format.js";
-import { SkillRegistry } from "../../core/registry.js";
 import type { SkillRegistryOptions } from "../../core/registry.js";
+import { SkillRegistry } from "../../core/registry.js";
+import { colors, highlight, renderList, setColorEnabled } from "../../utils/format.js";
+import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
 import { buildRegistryOptions } from "../registry-options.js";
 
 export interface SearchArgs extends SkillRegistryOptions {
@@ -40,9 +40,11 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
         const content = registry.load(skill.name).content;
         return containsCaseInsensitive(content, argv.query);
       })
-    : picked.filter((skill) => containsCaseInsensitive(`${skill.name} ${skill.description}`, argv.query));
+    : picked.filter((skill) =>
+        containsCaseInsensitive(`${skill.name} ${skill.description}`, argv.query)
+      );
 
-  const format = argv.json ? "json" : argv.format ?? "plain";
+  const format = argv.json ? "json" : (argv.format ?? "plain");
 
   if (format === "json") {
     const payload = filtered.map((skill) => ({
@@ -60,7 +62,7 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
     return;
   }
 
-  console.log(`Matches (${filtered.length})\n`);
+  console.log(`${colors.underline(colors.bold("Matches"))} (${filtered.length})\n`);
   console.log(
     renderList(
       filtered.map((skill) => ({
