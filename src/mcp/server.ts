@@ -1,18 +1,15 @@
-import { createServer as createHttpServer } from "node:http";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { SkillRegistry } from "../core/registry.js";
-import type { SkillRegistryOptions } from "../core/registry.js";
-import type { Skill } from "../types/skill.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { randomUUID } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer as createHttpServer } from "node:http";
 import { parse } from "node:url";
+import type { SkillRegistryOptions } from "../core/registry.js";
+import { SkillRegistry } from "../core/registry.js";
+import type { Skill } from "../types/skill.js";
 
 export interface MCPServerOptions extends SkillRegistryOptions {
   autoRefresh?: boolean;
@@ -237,22 +234,51 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
   });
 
   httpServer.listen(port, host, () => {
-    console.error(`[ccski] MCP SSE server listening on http://${host}:${port}/mcp (messages at ${messagePath})`);
+    console.error(
+      `[ccski] MCP SSE server listening on http://${host}:${port}/mcp (messages at ${messagePath})`
+    );
     console.error(`[ccski] Discovered ${registry.getAll().length} skills`);
   });
 }
 
 export function buildSkillDescription(registry: SkillRegistry): string {
   const skills = registry.getAll();
-  const skillList = skills
-    .map((s) => `- ${s.name}: ${s.description}`)
+
+  const skillBlocks = skills
+    .map((skill) => {
+      const location = skill.location === "user" ? "global" : skill.location;
+      return [
+        "<skill>",
+        `<name>${skill.name}</name>`,
+        `<description>${skill.description}</description>`,
+        `<location>${location}</location>`,
+        "</skill>",
+      ].join("\n");
+    })
     .join("\n");
 
-  return `Load a skill by name to get specialized instructions.
-Include plugin namespace when present (plugin:skill).
+  const instructions = `Execute a skill within the main conversation
 
-Available skills:
-${skillList || "(none found)"}`;
+<skills_instructions>
+When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+How to use skills:
+- Invoke skills using this tool with the skill name only (no arguments)
+- The skill's prompt will expand and provide detailed instructions on how to complete the task
+- Examples:
+  - command: "pdf" - invoke the pdf skill
+  - command: "xlsx" - invoke the xlsx skill
+  - command: "plugin:pdf" - invoke using fully qualified name
+
+Important:
+- Only use skills listed in <available_skills> below
+- Do not invoke a skill that is already running
+- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
+</skills_instructions>`;
+
+  const available = `<available_skills>\n${skillBlocks || "<skill>\n<name>none</name>\n<description>No skills discovered</description>\n<location>none</location>\n</skill>"}\n</available_skills>`;
+
+  return `${instructions}\n\n${available}`;
 }
 
 export function formatSkillContent(skill: Skill): string {
@@ -260,7 +286,9 @@ export function formatSkillContent(skill: Skill): string {
     `name: ${skill.name}`,
     `path: ${skill.path}`,
     `location: ${skill.location}`,
-    skill.pluginInfo ? `plugin: ${skill.pluginInfo.pluginName}@${skill.pluginInfo.marketplace}` : null,
+    skill.pluginInfo
+      ? `plugin: ${skill.pluginInfo.pluginName}@${skill.pluginInfo.marketplace}`
+      : null,
   ]
     .filter(Boolean)
     .join("\n");

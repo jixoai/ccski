@@ -142,3 +142,85 @@ location: project
 assets: true <- 这个标记
 ```
 首先你得告诉我这件事情的意义是什么？它是ClaudeCode Skills的标准吗？
+
+---
+
+我觉得 universal-skills 的mcp返回内容结构是更好的，这种结构也是官方claude-code的 tools:Skill 的内置结构：
+```
+Execute a skill within the main conversation
+
+<skills_instructions>
+When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
+
+How to use skills:
+- Invoke skills using this tool with the skill name only (no arguments)
+- When you invoke a skill, you will see <command-message>The "{name}" skill is loading</command-message>
+- The skill's prompt will expand and provide detailed instructions on how to complete the task
+- Examples:
+  - command: "pdf" - invoke the pdf skill
+  - command: "xlsx" - invoke the xlsx skill
+  - command: "ms-office-suite:pdf" - invoke using fully qualified name
+
+Important:
+- Only use skills listed in <available_skills> below
+- Do not invoke a skill that is already running
+- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
+</skills_instructions>
+
+<available_skills>
+<skill>
+<name>my-skill</name>
+<description>Specialized my-skill expert assistant providing comprehensive technical support</description>
+<location>project</location>
+</skill>
+<skill>
+<name>bun</name>
+<description>Enhanced documentation skill for 'bun' with intelligent search</description>
+<location>global</location>
+</skill>
+<skill>
+<name>claude-code-extension</name>
+<description>Claude Code 官方扩展开发指南。当需要创建或修改 slash commands、skills、hooks、subagents、plugins 或 MCP servers 时使用此技能。此技能提供索引和导航，详细文档位于 references/claude-code/ 目录。</description>
+<location>global</location>
+</skill>
+<skill>
+<name>ccai-task-delegation</name>
+<description>Delegate tool-intensive tasks to cost-efficient AI providers. Use when tasks involve 10+ tool calls, have clear boundaries, and simple verification. Ideal for batch operations, web scraping, code generation, and data processing. Suggest running delegated tasks in background.</description>
+<location>global</location>
+</skill>
+<skill>
+<name>glm-delegation</name>
+<description>Automatically identify tool-intensive tasks with clear boundaries and delegate them to GLM-4.6 for cost-efficient execution. Triggers on batch operations (WebFetch, Read, Write, Edit, Bash, MCP, etc.), data processing, code generation, code analysis, and web scraping tasks, chrome-devtools-mcp tasks.</description>
+<location>global</location>
+</skill>
+<skill>
+<name>react-query@3</name>
+<description>Documentation skill for react-query</description>
+<location>global</location>
+</skill>
+<skill>
+<name>tanstack-router</name>
+<description>TanStack React Router - Fully typesafe Router for React with built-in caching, search-param APIs, and isomorphic rendering. Provides comprehensive documentation with intelligent search capabilities.</description>
+<location>global</location>
+</skill>
+<skill>
+<name>test-user-scope@1</name>
+<description>Enhanced documentation skill for test-user-scope@1 with intelligent search and Context7 integration</description>
+<location>global</location>
+</skill>
+<skill>
+<name>user</name>
+<description>用户的全局技能，必读！</description>
+<location>global</location>
+</skill>
+<skill>
+<name>zod@4</name>
+<description>Documentation skill for zod</description>
+<location>global</location>
+</skill>
+</available_skills>
+
+
+```
+
+还有我看到 universal-skills 支持`install`命令

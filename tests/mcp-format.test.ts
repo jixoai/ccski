@@ -49,7 +49,10 @@ describe("MCP formatting helpers", () => {
     } as unknown as SkillRegistry;
 
     const description = buildSkillDescription(registry);
-    expect(description).toContain("Available skills");
-    expect(description).toContain("demo: Demo skill");
+    expect(description).toContain("<skills_instructions>");
+    expect(description).toContain("<available_skills>");
+    expect(description).toContain("<name>demo</name>");
+    expect(description).toContain("<description>Demo skill</description>");
+    expect(description).toContain("<location>global</location>");
   });
 });

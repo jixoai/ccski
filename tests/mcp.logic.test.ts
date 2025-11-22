@@ -23,7 +23,10 @@ describe("mcp helpers", () => {
     const registry = new SkillRegistry({ customDirs: [dir], scanDefaultDirs: false, skipPlugins: true });
 
     const desc = buildSkillDescription(registry);
-    expect(desc).toContain("alpha: alpha description");
+    expect(desc).toContain("<available_skills>");
+    expect(desc).toContain("<name>alpha</name>");
+    expect(desc).toContain("<description>alpha description</description>");
+    expect(desc).toContain("<location>global</location>");
   });
 
   it("formats skill content with base directory", () => {
