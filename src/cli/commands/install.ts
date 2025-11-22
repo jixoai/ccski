@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
 import { error, renderList, setColorEnabled, success } from "../../utils/format.js";
@@ -54,6 +55,13 @@ interface SkillEntry {
   dir: string;
 }
 
+class MultiSkillSelectionError extends Error {
+  constructor(message: string, public listing: string) {
+    super(message);
+    this.name = "MultiSkillSelectionError";
+  }
+}
+
 export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
@@ -70,7 +78,7 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     }
 
     const force = argv.force === true || argv.override === true;
-    const selection = selectSkills(targets, argv, argv.source, materialized.base);
+    const selection = await selectSkills(targets, argv, argv.source, materialized.base);
 
     const installed: string[] = [];
     for (const entry of selection) {
@@ -80,7 +88,12 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     console.log(success(`Installed ${installed.length} skill(s):`));
     installed.forEach((d) => console.log(` - ${d}`));
   } catch (err) {
-    console.error(error(`Install failed: ${err instanceof Error ? err.message : String(err)}`));
+    if (err instanceof MultiSkillSelectionError) {
+      console.error(error(`Install failed: ${err.message}`));
+      console.log(err.listing);
+    } else {
+      console.error(error(`Install failed: ${err instanceof Error ? err.message : String(err)}`));
+    }
     process.exitCode = 1;
   }
 }
@@ -251,6 +264,29 @@ function buildSkillEntries(dirs: string[]): SkillEntry[] {
   });
 }
 
+async function promptSelectSkills(entries: SkillEntry[]): Promise<SkillEntry[]> {
+  console.log(renderList(entries.map((e, idx) => ({ title: `${idx + 1}. ${e.name}`, description: e.description }))));
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question("Select skills (numbers, comma/space separated, or 'all', default=all): ");
+  rl.close();
+
+  const trimmed = answer.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "all") return entries;
+
+  const tokens = trimmed.split(/[\s,]+/).filter(Boolean);
+  const indices = tokens
+    .map((t) => Number.parseInt(t, 10))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= entries.length);
+
+  if (indices.length === 0) {
+    throw new Error("No valid selections provided.");
+  }
+
+  const unique = Array.from(new Set(indices));
+  return unique.map((i) => entries[i - 1]!);
+}
+
 function parseSelectors(argv: ArgumentsCamelCase<InstallArgs>): string[] {
   const extras = argv._ ? argv._.slice(1) : [];
   return extras
@@ -259,24 +295,35 @@ function parseSelectors(argv: ArgumentsCamelCase<InstallArgs>): string[] {
     .filter(Boolean);
 }
 
-function selectSkills(
+async function selectSkills(
   targetDirs: string[],
   argv: ArgumentsCamelCase<InstallArgs>,
   sourceLabel: string,
   base: string
-): SkillEntry[] {
+): Promise<SkillEntry[]> {
   const entries = buildSkillEntries(targetDirs);
   if (entries.length === 1) return entries;
 
   const selectors = parseSelectors(argv);
 
   if (argv.all) return entries;
-  if (argv.interactive) return entries; // placeholder: non-interactive environments auto-select all
+  if (argv.interactive) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      const listing = renderList(entries.map((e) => ({ title: e.name, description: e.description })));
+      throw new MultiSkillSelectionError(
+        `Interactive mode requires a TTY. Specify names or use --all instead for ${sourceLabel}.`,
+        listing
+      );
+    }
+    const picked = await promptSelectSkills(entries);
+    return picked;
+  }
 
   if (selectors.length === 0) {
     const listing = renderList(entries.map((e) => ({ title: e.name, description: e.description })));
-    throw new Error(
-      `Multiple skills found (${entries.length}) in ${sourceLabel}. Specify names, use --all, or --interactive.\nAvailable skills:\n${listing}`
+    throw new MultiSkillSelectionError(
+      `Multiple skills found (${entries.length}) in ${sourceLabel}. Specify names, use --all, or --interactive.`,
+      listing
     );
   }
 
