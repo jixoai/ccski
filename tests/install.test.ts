@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { installSkill } from "../src/cli/commands/install.js";
+import { installSkillDir } from "../src/cli/commands/install.js";
 
 function createSkill(dirName: string, description = "demo"): string {
   const root = mkdtempSync(join(tmpdir(), `ccski-install-${dirName}-`));
@@ -16,12 +16,12 @@ function createSkill(dirName: string, description = "demo"): string {
   return skillDir;
 }
 
-describe("installSkill", () => {
+describe("installSkillDir", () => {
   it("copies skill into target root", () => {
     const src = createSkill("alpha", "alpha description");
     const destRoot = mkdtempSync(join(tmpdir(), "ccski-install-target-"));
 
-    const installedPath = installSkill(src, destRoot, false);
+    const installedPath = installSkillDir(src, destRoot, false);
 
     expect(installedPath).toBe(join(destRoot, "alpha"));
   });
@@ -29,8 +29,8 @@ describe("installSkill", () => {
   it("throws when skill exists without force", () => {
     const src = createSkill("beta");
     const destRoot = mkdtempSync(join(tmpdir(), "ccski-install-target-"));
-    installSkill(src, destRoot, false);
+    installSkillDir(src, destRoot, false);
 
-    expect(() => installSkill(src, destRoot, false)).toThrow(/already exists/);
+    expect(() => installSkillDir(src, destRoot, false)).toThrow(/already exists/);
   });
 });

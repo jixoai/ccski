@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,39 +12,25 @@ export interface InstallArgs {
   global?: boolean;
   force?: boolean;
   override?: boolean;
+  use?: string;
   noColor?: boolean;
   color?: boolean;
 }
 
-function resolveSourceSkill(source: string): { dir: string; skillFile: string } {
-  const normalized = source.startsWith("file://") ? new URL(source).pathname : source;
-  const resolved = resolve(normalized);
-  const stats = statSync(resolved);
-
-  if (stats.isFile()) {
-    if (!resolved.toLowerCase().endsWith("skill.md")) {
-      throw new Error(`Source file must be SKILL.md, got ${resolved}`);
-    }
-    return { dir: dirname(resolved), skillFile: resolved };
-  }
-
-  if (stats.isDirectory()) {
-    const skillFile = join(resolved, "SKILL.md");
-    if (!existsSync(skillFile)) {
-      throw new Error(`No SKILL.md found in ${resolved}`);
-    }
-    return { dir: resolved, skillFile };
-  }
-
-  throw new Error(`Unsupported source: ${resolved}`);
+function normalizeSourcePath(source: string): string {
+  return source.startsWith("file://") ? new URL(source).pathname : source;
 }
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-export function installSkill(source: string, targetRoot: string, force = false): string {
-  const { dir, skillFile } = resolveSourceSkill(source);
+export function installSkillDir(skillDir: string, targetRoot: string, force = false): string {
+  const skillFile = join(skillDir, "SKILL.md");
+  if (!existsSync(skillFile)) {
+    throw new Error(`No SKILL.md found in ${skillDir}`);
+  }
+
   const parsed = parseSkillFile(skillFile);
   const skillName = parsed.frontmatter.name;
 
@@ -52,10 +38,10 @@ export function installSkill(source: string, targetRoot: string, force = false):
   ensureDir(targetRoot);
 
   if (!force && existsSync(destDir)) {
-    throw new Error(`Skill '${skillName}' already exists at ${destDir} (use --force to overwrite)`);
+    throw new Error(`Skill '${skillName}' already exists at ${destDir} (use --force/--override to overwrite)`);
   }
 
-  cpSync(dir, destDir, { recursive: true, force: true });
+  cpSync(skillDir, destDir, { recursive: true, force: true });
   return destDir;
 }
 
@@ -67,9 +53,21 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     const targetRoot = argv.global
       ? join(process.env.HOME ?? "~", ".claude/skills")
       : join(process.cwd(), ".claude/skills");
-    const localPath = await materializeSource(argv.source);
-    const dest = installSkill(localPath, targetRoot, argv.force === true || argv.override === true);
-    console.log(success(`Installed skill to ${dest}`));
+    const materialized = await materializeSource(argv.source);
+    const targets = resolveInstallTargets(materialized.base, argv.use ?? materialized.useHint);
+
+    if (targets.length === 0) {
+      throw new Error(`No skills found to install in ${localPath}`);
+    }
+
+    const force = argv.force === true || argv.override === true;
+    const installed: string[] = [];
+    for (const dir of targets) {
+      installed.push(installSkillDir(dir, targetRoot, force));
+    }
+
+    console.log(success(`Installed ${installed.length} skill(s):`));
+    installed.forEach((d) => console.log(` - ${d}`));
   } catch (err) {
     console.error(error(`Install failed: ${err instanceof Error ? err.message : String(err)}`));
     process.exitCode = 1;
@@ -89,21 +87,47 @@ function parseGithubTree(url: URL): { repo: string; ref?: string; subdir?: strin
   return null;
 }
 
-async function materializeSource(source: string): Promise<string> {
-  if (source.startsWith("file://")) return new URL(source).pathname;
+function parseGithubBlob(url: URL): { repo: string; ref?: string; path: string } | null {
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length >= 5 && parts[2] === "blob") {
+    const [owner, repo, , ref, ...rest] = parts;
+    return {
+      repo: `https://github.com/${owner}/${repo}.git`,
+      ref,
+      path: rest.join("/"),
+    };
+  }
+  return null;
+}
+
+interface MaterializedSource {
+  base: string;
+  useHint?: string;
+}
+
+async function materializeSource(source: string): Promise<MaterializedSource> {
+  if (source.startsWith("file://")) return { base: new URL(source).pathname };
 
   if (source.startsWith("http://") || source.startsWith("https://") || source.endsWith(".git")) {
     let repo = source;
     let ref: string | undefined;
     let subdir: string | undefined;
+    let useHint: string | undefined;
 
     try {
       const url = new URL(source);
-      const gh = parseGithubTree(url);
-      if (gh) {
-        repo = gh.repo;
-        ref = gh.ref;
-        subdir = gh.subdir;
+      const ghTree = parseGithubTree(url);
+      if (ghTree) {
+        repo = ghTree.repo;
+        ref = ghTree.ref;
+        subdir = ghTree.subdir;
+      } else {
+        const ghBlob = parseGithubBlob(url);
+        if (ghBlob) {
+          repo = ghBlob.repo;
+          ref = ghBlob.ref;
+          useHint = ghBlob.path;
+        }
       }
     } catch {
       // fall through, treat as raw git URL
@@ -119,8 +143,65 @@ async function materializeSource(source: string): Promise<string> {
 
     execSync(clone.join(" "), { stdio: "ignore" });
 
-    return subdir ? join(tmp, subdir) : tmp;
+    return { base: subdir ? join(tmp, subdir) : tmp, useHint };
   }
 
-  return source;
+  return { base: normalizeSourcePath(source) };
+}
+
+function marketplaceSkills(marketplacePath: string): string[] {
+  const data = JSON.parse(readFileSync(marketplacePath, "utf8"));
+  const dir = dirname(marketplacePath);
+  const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+
+  const skillPaths = new Set<string>();
+  for (const plugin of plugins) {
+    if (!plugin || !Array.isArray(plugin.skills)) continue;
+    for (const rel of plugin.skills) {
+      if (typeof rel !== "string") continue;
+      const cleaned = rel.replace(/^\.\//, "");
+      const full = rel.endsWith("SKILL.md") ? dirname(join(dir, cleaned)) : join(dir, cleaned);
+      skillPaths.add(full);
+    }
+  }
+  return Array.from(skillPaths);
+}
+
+function resolveInstallTargets(root: string, usePath?: string): string[] {
+  const base = resolve(root);
+  const candidatePath = usePath ? resolve(base, usePath) : base;
+
+  // explicit SKILL.md file
+  if (usePath && candidatePath.toLowerCase().endsWith("skill.md") && existsSync(candidatePath)) {
+    return [dirname(candidatePath)];
+  }
+
+  // explicit directory with SKILL.md
+  if (usePath && existsSync(candidatePath) && statSync(candidatePath).isDirectory()) {
+    if (existsSync(join(candidatePath, "SKILL.md"))) return [candidatePath];
+    if (existsSync(join(candidatePath, "marketplace.json"))) {
+      return marketplaceSkills(join(candidatePath, "marketplace.json"));
+    }
+  }
+
+  // explicit marketplace file
+  if (usePath && existsSync(candidatePath) && candidatePath.endsWith("marketplace.json")) {
+    return marketplaceSkills(candidatePath);
+  }
+
+  // auto-detect within base
+  if (existsSync(join(base, ".claude-plugin", "marketplace.json"))) {
+    return marketplaceSkills(join(base, ".claude-plugin", "marketplace.json"));
+  }
+
+  if (existsSync(join(base, "SKILL.md"))) {
+    return [base];
+  }
+
+  // fallback: if base is marketplace dir
+  if (existsSync(join(base, "marketplace.json"))) {
+    return marketplaceSkills(join(base, "marketplace.json"));
+  }
+
+  throw new Error(`No SKILL.md or marketplace.json found in ${base}${usePath ? ` (use: ${usePath})` : ""}`);
 }
