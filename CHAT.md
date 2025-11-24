@@ -362,3 +362,70 @@ pnpm ccski install https://github.com/anthropics/skills
 2. 首先介绍这个ccski这个cli工具的定位，以及如何启动mcp，提供常见cli工具的mcp配置方法（比如`codex mcp add skills -- npx ccski mcp`）
 3. 然后介绍面向ccski内置的一些功能 list/enable/disable/install
 4. 接着为贡献者开发者提供一些简单的入门教程、架构简介，源码阅读顺序、以及一些代码规范
+
+---
+
+对于`enable/disable`命令，如果禁用的是plugin里面的技能，注意不能用`.SKILL.md`这样的名字来做禁用。
+
+---
+
+我刚刚尝试执行：`https://github.com/wshobson/agents/blob/main/.claude-plugin/marketplace.json` 结果居然报错：
+
+```
+❯ pnpm ccski install https://github.com/wshobson/agents/tree/main/
+
+> ccski@1.0.3 ccski /Users/kzf/Dev/GitHub/jixoai-labs/ccski
+> bun src/cli.ts install https://github.com/wshobson/agents/tree/main/
+
+Install failed: No skills found to install in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c80000gp/T/ccski-install-XjX3A0
+ ELIFECYCLE  Command failed with exit code 1.
+```
+
+这里有两个问题：
+
+1. 首先是基本的功能不可用的问题，这明明是一个标准的 marketplace.json 文件，怎么会分析不出里面的skills呢？
+2. 报错的时候`Install failed: No skills found to install in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c80000gp/T/ccski-install-XjX3A0`，这里首先要有更好的打印说明：
+   1. `/var/folders/tn/y_b12zxs2dldn8thmfnpy9c80000gp/T/ccski-install-XjX3A0`这个文件夹是我们的临时目录，对于这个临时目录，是面向高级用户或者作者，所以它不应该作为信息的重点。
+   2. 信息的重点在于用户的输入：我们要强调是`https://github.com/wshobson/agents`这个仓库，`main`这个分支，文件是`.claude-plugin/marketplace.json`
+3. 为此我们需要对对我们的install做一些重构，我提供了`src/utils/git-url-parser.ts`这个算法，请你用它来优化我们的install命令：
+   1. `--use`改成`--path`
+   2. 加入`--mode=git|file`，如果是http协议，那么默认用git模式：先做clone，切到对应的branch；否则使用file模式：直接从文件夹的代码进行安装
+   3. 加入`--branch`来配合`--mode=git`模式做指定的分支切换
+
+---
+
+我发现你是自己实现了 checkbox的渲染， src/cli/prompts/multiSelect.ts 。我不理解，https://github.com/SBoudrias/Inquirer.js/tree/main/packages/checkbox 不能满足我们的需求吗？不过这是次要的，重要的是这个：
+
+我希望我们能达到的效果是，能“整个屏幕渲染”，这里的难点在于我们的description可能显示多行文本，所以这里要知道我们要渲染的内容是什么，有几行，需要通过计算才能铺满整个屏幕的高度：process.stdout.rows
+
+---
+
+实现“监听终端 resize 事件，实时重算 pageSize，适合经常改窗口尺寸的场景。”
+
+---
+
+渲染算法存在问题，因为底部`Command: ccski install`这里也有可能换行，这个你有考虑吗？另外`pnpm ts`存在大量错误
+
+---
+
+我不知道为什么，我偶尔会看到`? Select skills to install from https://github.com/wshobson/agents.git`这一行会渲染到终端的视图之外。正确情况下，它应该渲染在“第一行”。但事实情况下，我看到的是它渲染到“第0行”，我需要通过回滚动终端视图才能看到它，相对应的。底部会有大量的空白。
+理论上，`↑↓ navigate`这一行应该在终端窗口的最底部才对。
+
+---
+
+问题还是存在，并且我发现了问题的规律：
+
+1. 如果`↑↓ navigate`没有贴底部，那么`? Select skills to install from`就会渲染在“第0行”
+2. 我发现视图始终不能“全屏”渲染，即便终端的底部有足够的空间，但是这些空间还是没有正确利用起来。
+3. 这两个问题给我的感觉就是：你根据终端高度（比如30行），计算出要渲染之后，然后你觉得你现在内容是30行了，结果渲染出来的内容是31行，导致`? Select skills to install from`这个第一行就渲染在视图之外。
+
+---
+
+你的意思是，你觉得是 Inquirer 不支持 choice 渲染成多汗后的行数计算，导致的问题？
+因为我们是tsdown编译的项目，所以最终我们并不会附带 inquirer 依赖。所以我再给你一个可选的方向：“我们能否通过pnpm patch的方式，对源码进行修改。从而以最符合直觉的方式好使用 inquirer ”。将这个方案和你之前的几个方案放在一起，你会怎么选择？
+
+---
+
+很好，我验收通过了，可以整理一下文件，然后提交代码了。
+代码提交之前，我需要你更新双语README，特别抽出一张介绍cli的相关用法，现在只是简单用一个表格预览了cli的功能。
+我需要你特别重点介绍我们的 install 功能，特别是解释它和 claude plugin 安装的差异是什么。

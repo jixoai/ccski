@@ -37,13 +37,43 @@ Run with `--skill-dir` to add extra roots, or `--no-refresh` to disable live rel
 | ------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `ccski list`                                | Show discovered skills (projects, home, plugin marketplace) with status badges           |
 | `ccski info <name>`                         | Inspect metadata and preview content                                                     |
-| `ccski install <source> [-i\|--all\|--use]` | Install skills from git/dir/marketplace; interactive picker shows final one-shot command |
+| `ccski install <source> [-i\|--all\|--path]` | Install skills from git/dir/marketplace; interactive picker shows final one-shot command |
 | `ccski enable [names...] [-i\|--all]`       | Restore `.SKILL.md` → `SKILL.md`; interactive defaults **unchecked**                     |
 | `ccski disable [names...] [-i\|--all]`      | Disable skills by flipping to `.SKILL.md`                                                |
 | `ccski mcp`                                 | Start MCP server (stdio/http/sse)                                                        |
 | `ccski validate <path>`                     | Validate SKILL.md or directory structure                                                 |
 
 Interactive pickers across install/enable/disable share the same layout, colors, and live “Command:” preview so you can copy/paste the equivalent non-interactive invocation.
+
+### Install deep dive
+
+- **Sources**: git URL (with `--branch`, `--path`, `--mode git` default for http/https), local dir/file (`--mode file`), `marketplace.json`, or direct `SKILL.md`.
+- **Granular selection**: `-i/--interactive` to pick; `--all`; positional filters for fuzzy name matching.
+- **Where it lands**: project `.claude/skills` by default, or `--global` to `~/.claude/skills`.
+- **Force/overwrite**: `--force`/`--override` to replace existing skill folder.
+
+#### Examples
+
+- Repo root（default branch, auto-detect marketplace）  
+  `ccski install https://github.com/wshobson/agents`
+
+- Repo branch with marketplace  
+  `ccski install https://github.com/wshobson/agents/tree/main` or `--branch main`
+
+- Specific file inside repo (auto clone, blob path)  
+  `ccski install https://github.com/wshobson/agents/blob/main/.claude-plugin/marketplace.json`
+
+- Local directory (no git)  
+  `ccski install /path/to/skills --mode file`
+
+- Direct SKILL.md  
+  `ccski install ./plugins/foo/SKILL.md`
+
+### How this differs from “claude plugin install”
+
+- **Install target**: ccski copies **SKILL.md skills** into `.claude/skills`; `claude plugin install` pulls a **Claude plugin package** (commands + metadata) into the Claude app. Two different ecosystems.
+- **Sources**: ccski supports git / local dir / marketplace.json / direct SKILL.md. Claude plugins come from the Claude plugin directory/store.
+- **Flexibility**: ~ccski can mix many repos (including private git) and expose them via MCP; Claude plugin installs can’t be combined this way.~
 
 ## 3) Thanks & lineage
 

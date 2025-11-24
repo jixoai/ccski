@@ -1,4 +1,3 @@
-import figures from "@inquirer/figures";
 import {
   Separator,
   ValidationError,
@@ -11,20 +10,33 @@ import {
   makeTheme,
   useKeypress,
   useMemo,
+  useEffect,
   usePagination,
   usePrefix,
   useState,
 } from "@inquirer/core";
+import figures from "@inquirer/figures";
 import { tone } from "../../utils/format.js";
+import { wrap } from "../../word-wrap/index.js";
 
 // Shared interactive picker so install/enable/disable stay visually consistent.
 
-interface Choice {
+export interface Choice {
   value: string;
   label: string;
   description?: string;
   checked?: boolean;
 }
+
+type NormalizedChoice = {
+  value: string;
+  name: string;
+  short: string;
+  checkedName: string;
+  description?: string;
+  checked?: boolean;
+  disabled?: boolean;
+};
 
 export interface MultiSelectOptions {
   message: string;
@@ -32,6 +44,12 @@ export interface MultiSelectOptions {
   defaultChecked?: boolean;
   pageSize?: number;
   showActiveDescription?: boolean;
+  instructions?: boolean | string;
+  loop?: boolean;
+  required?: boolean;
+  validate?: (selection: NormalizedChoice[]) => boolean | string | Promise<boolean | string>;
+  shortcuts?: { all?: string; invert?: string };
+  theme?: unknown;
   command?: {
     base: string;
     staticArgs?: string[];
@@ -51,38 +69,37 @@ const checkboxTheme = {
       selectedChoices.map((choice) => choice.short).join(", "),
     description: (text: string) => tone.info(text),
     keysHelpTip: (keys: Array<[string, string]>) =>
-      keys.map(([key, action]) => `${tone.bold(key)} ${tone.muted(action)}`).join(tone.muted(" • ")),
+      keys
+        .map(([key, action]) => `${tone.bold(key)} ${tone.muted(action)}`)
+        .join(tone.muted(" • ")),
   },
   helpMode: "always" as const,
-  keybindings: [] as Array<[string, string]>,
+  keybindings: [] as Array<"vim" | "emacs">,
 };
 
-const isSelectable = (item: NormalizedChoice): boolean => !Separator.isSeparator(item) && !item.disabled;
+const isSelectable = (item: NormalizedChoice): boolean =>
+  !Separator.isSeparator(item) && !item.disabled;
 const isChecked = (item: NormalizedChoice): boolean => isSelectable(item) && item.checked === true;
 
-type NormalizedChoice = {
-  value: string;
-  name: string;
-  short: string;
-  checkedName: string;
-  description?: string;
-  checked?: boolean;
-  disabled?: boolean;
-};
-
 function normalizeChoices(choices: Choice[], defaultChecked: boolean): NormalizedChoice[] {
-  return choices.map((choice) => ({
-    value: choice.value,
-    name: choice.label,
-    short: choice.label,
-    checkedName: choice.label,
-    description: choice.description,
-    checked: choice.checked ?? defaultChecked,
-    disabled: false,
-  }));
+  return choices.map((choice) => {
+    const desc = choice.description;
+    return {
+      value: choice.value,
+      name: choice.label,
+      short: choice.label,
+      checkedName: choice.label,
+      ...(desc ? { description: desc } : {}),
+      checked: choice.checked ?? defaultChecked,
+      disabled: false,
+    };
+  });
 }
 
-function buildPreview(command: MultiSelectOptions["command"], selected: string[]): string | undefined {
+function buildPreview(
+  command: MultiSelectOptions["command"],
+  selected: string[]
+): string | undefined {
   if (!command) return undefined;
   const label = command.label ?? "Command";
   const base = command.base.trim();
@@ -95,10 +112,10 @@ function buildPreview(command: MultiSelectOptions["command"], selected: string[]
   return `${tone.info(`${label}:`)} ${renderedBase}${suffix}`;
 }
 
-const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: string; invert?: string } }>((config, done) => {
+const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { all?: string; invert?: string } }>((config, done) => {
   const {
     instructions,
-    pageSize = 12,
+    pageSize,
     loop = false,
     required,
     validate = () => true,
@@ -107,12 +124,30 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
   } = config;
 
   const shortcuts = { all: "a", invert: "i", ...config.shortcuts };
-  const theme = makeTheme(checkboxTheme, config.theme);
-  const { keybindings } = theme;
+  const theme = makeTheme(checkboxTheme, config.theme as any);
+  const keybindings = theme.keybindings as ReadonlyArray<"vim" | "emacs">;
 
   const [status, setStatus] = useState("idle");
   const prefix = usePrefix({ status, theme });
   const [items, setItems] = useState(normalizeChoices(config.choices, defaultChecked));
+  const [termSize, setTermSize] = useState(() => ({
+    rows: process.stdout?.rows ?? 24,
+    cols: process.stdout?.columns ?? 80,
+  }));
+
+  useEffect(() => {
+    const stdout = process.stdout;
+    if (!stdout?.on || !stdout?.off) return;
+    const handleResize = (): void => {
+      const rows = stdout.rows ?? termSize.rows;
+      const cols = stdout.columns ?? termSize.cols;
+      setTermSize({ rows, cols });
+    };
+    stdout.on("resize", handleResize);
+    return () => {
+      stdout.off("resize", handleResize);
+    };
+  }, []);
 
   const bounds = useMemo(() => {
     const first = items.findIndex(isSelectable);
@@ -124,7 +159,9 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
       }
     }
     if (first === -1) {
-      throw new ValidationError("[checkbox prompt] No selectable choices. All choices are disabled.");
+      throw new ValidationError(
+        "[checkbox prompt] No selectable choices. All choices are disabled."
+      );
     }
     return { first, last };
   }, [items]);
@@ -135,19 +172,29 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
   useKeypress(async (key) => {
     if (key.name === shortcuts.all) {
       const selectAll = items.some((choice) => isSelectable(choice) && !choice.checked);
-      setItems(items.map((choice) => (isSelectable(choice) ? { ...choice, checked: selectAll } : choice)));
+      setItems(
+        items.map((choice) => (isSelectable(choice) ? { ...choice, checked: selectAll } : choice))
+      );
       setError(undefined);
       return;
     }
 
     if (key.name === shortcuts.invert) {
-      setItems(items.map((choice) => (isSelectable(choice) ? { ...choice, checked: !choice.checked } : choice)));
+      setItems(
+        items.map((choice) =>
+          isSelectable(choice) ? { ...choice, checked: !choice.checked } : choice
+        )
+      );
       setError(undefined);
       return;
     }
 
     if (isSpaceKey(key)) {
-      setItems(items.map((choice, idx) => (idx === active ? { ...choice, checked: !choice.checked } : choice)));
+      setItems(
+        items.map((choice, idx) =>
+          idx === active ? { ...choice, checked: !choice.checked } : choice
+        )
+      );
       setError(undefined);
       return;
     }
@@ -193,13 +240,50 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
       const selectedItem = items[position];
       if (selectedItem && isSelectable(selectedItem)) {
         setActive(position);
-        setItems(items.map((choice, i) => (i === position ? { ...choice, checked: !choice.checked } : choice)));
+        setItems(
+          items.map((choice, i) =>
+            i === position ? { ...choice, checked: !choice.checked } : choice
+          )
+        );
       }
     }
   });
 
   const message = theme.style.message(config.message, status);
-  const preview = buildPreview(command, items.filter(isChecked).map((c) => c.value));
+  const preview = buildPreview(
+    command,
+    items.filter(isChecked).map((c) => c.value)
+  );
+
+  const termRows = termSize.rows;
+  const usableRows = Math.max(1, termRows);
+  const termCols = Math.max(40, termSize.cols - 4);
+  const activeDescriptionRaw =
+    config.showActiveDescription && items[active]?.description ? items[active]?.description : undefined;
+  const wrappedDescription =
+    activeDescriptionRaw && activeDescriptionRaw.length > 0
+      ? wrap(activeDescriptionRaw, { width: termCols, cut: false, trim: true })
+      : undefined;
+  const descriptionLineCount = wrappedDescription ? wrappedDescription.split("\n").length : 0;
+
+  const wrappedPreview =
+    preview && preview.length > 0 ? wrap(preview, { width: termCols, cut: false, trim: true }) : undefined;
+  const previewLineCount = wrappedPreview ? wrappedPreview.split("\n").length : 0;
+
+  const helpLinesReserved = instructions === false ? 0 : 1;
+  const errorLinesReserved = errorMsg ? 1 : 0;
+  const leadingLines = 0;
+  const reservedLines =
+    1 + // message
+    1 + // spacer
+    previewLineCount +
+    descriptionLineCount +
+    errorLinesReserved +
+    helpLinesReserved;
+  // Let Inquirer paginate by lines: give it all available lines (not item count).
+  const maxPageSize = Math.max(1, usableRows - reservedLines - leadingLines);
+  const basePageSize = pageSize ?? maxPageSize;
+  const finalPageSize = Math.max(1, Math.min(basePageSize, maxPageSize));
 
   let description: string | undefined;
   const page = usePagination({
@@ -213,7 +297,7 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
         const disabledLabel = typeof item.disabled === "string" ? item.disabled : "(disabled)";
         return theme.style.disabledChoice(`${item.name} ${disabledLabel}`);
       }
-      if (isActive && config.showActiveDescription) description = item.description;
+      if (isActive && config.showActiveDescription) description = wrappedDescription ?? item.description;
 
       const checkbox = item.checked ? theme.icon.checked : theme.icon.unchecked;
       const name = item.checked ? item.checkedName : item.name;
@@ -221,18 +305,18 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
       const cursor = isActive ? theme.icon.cursor : " ";
       return color(`${cursor}${checkbox} ${name}`);
     },
-    pageSize,
+    pageSize: finalPageSize,
     loop,
   });
 
   if (status === "done") {
     const selection = items.filter(isChecked);
-    const answer = theme.style.answer(theme.style.renderSelectedChoices(selection, items));
+    const answer = theme.style.answer(theme.style.renderSelectedChoices(selection));
     return [prefix, message, answer].filter(Boolean).join(" ");
   }
 
   let helpLine: string | undefined;
-  if (theme.helpMode !== "never" && instructions !== false) {
+  if (instructions !== false) {
     if (typeof instructions === "string") {
       helpLine = instructions;
     } else {
@@ -240,7 +324,7 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
         ["↑↓", "navigate"],
         ["space", "select"],
       ];
-        
+
       if (shortcuts.all) keys.push([shortcuts.all, "all"]);
       if (shortcuts.invert) keys.push([shortcuts.invert, "invert"]);
       keys.push(["⏎", "submit"]);
@@ -252,16 +336,39 @@ const promptImpl = createPrompt<MultiSelectOptions & { shortcuts?: { all?: strin
     [prefix, message].filter(Boolean).join(" "),
     page,
     " ",
-    preview,
+    wrappedPreview ?? preview,
     description ? theme.style.description(description) : "",
     errorMsg ? theme.style.error(errorMsg) : "",
     helpLine,
   ]
     .filter(Boolean)
-    .join("\n")
-    .trimEnd();
+    .join("\n");
 
-  return lines;
+  const renderedLines = lines.replace(/\n+$/, "").split("\n");
+  if (process.env.CCSKI_PROMPT_DEBUG === "1") {
+    console.error(
+      [
+        "[prompt-debug]",
+        `rows=${termRows}`,
+        `usable=${usableRows}`,
+        `leading=${leadingLines}`,
+        `reserved=${reservedLines}`,
+        `preview=${previewLineCount}`,
+        `desc=${descriptionLineCount}`,
+        `pageSize=${finalPageSize}`,
+        `items=${items.length}`,
+        `rendered=${renderedLines.length}`,
+      ].join(" ")
+    );
+  }
+
+  // Top padding to avoid first line being clipped in some terminals.
+  renderedLines.unshift("");
+
+  const padding = Math.max(0, usableRows - renderedLines.length);
+  if (padding > 0) renderedLines.push(...Array(padding).fill(""));
+
+  return renderedLines.join("\n");
 });
 
 export function promptMultiSelect(options: MultiSelectOptions): Promise<string[]> {

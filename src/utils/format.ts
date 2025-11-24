@@ -93,16 +93,18 @@ export function renderList(items: ListItem[]): string {
       const meta = item.meta ? `  ${dim(item.meta)}` : "";
       const badge = item.badge ? ` ${item.badge}` : "";
       const wrapWidth = Math.max(20, Math.min(process.stdout?.columns ?? 80, 120) - 4);
-      const description = item.description
-        ? "\n    " +
-          wrap(item.description, {
+      const desc = item.description;
+      const wrapped = desc
+        ? wrap(desc, {
             width: wrapWidth,
             indent: "",
             newline: "\n",
             trim: true,
             cut: false,
-          }).replace(/\n/g, "\n    ")
+          })
         : "";
+      const description =
+        wrapped && wrapped.length > 0 ? "\n    " + wrapped.replace(/\n/g, "\n    ") : "";
       return `- ${coloredTitle}${badge}${meta}${description}`;
     })
     .join("\n\n");

@@ -8,8 +8,8 @@ import type { SkillMetadata } from "../../types/skill.js";
 import { dim, error, heading, renderList, setColorEnabled, success, tone, warn } from "../../utils/format.js";
 import { rankStrings } from "../../utils/search.js";
 import { promptMultiSelect } from "../prompts/multiSelect.js";
-import { wrap } from "../../word-wrap/index.js";
 import { buildRegistryOptions } from "../registry-options.js";
+import { wrap } from "../../word-wrap/index.js";
 
 export interface ToggleArgs extends SkillRegistryOptions {
   names?: string[];
@@ -246,30 +246,36 @@ function enableSkill(skill: SkillMetadata, force: boolean): void {
 }
 
 function toListItems(skills: SkillMetadata[]) {
-  return skills.map((skill) => ({
-    title: skill.name,
-    color: skill.disabled ? tone.danger : undefined,
-    badge: skill.disabled ? tone.danger("[disabled]") : undefined,
-    meta:
-      skill.location === "plugin"
-        ? skill.pluginInfo?.pluginName ?? dim(skill.location)
-        : dim(skill.location),
-    description: skill.description,
-  }));
+  return skills.map((skill) => {
+    const base = {
+      title: skill.name,
+      meta:
+        skill.location === "plugin"
+          ? skill.pluginInfo?.pluginName ?? dim(skill.location)
+          : dim(skill.location),
+      ...(skill.description ? { description: skill.description } : {}),
+    };
+    if (skill.disabled) {
+      return {
+        ...base,
+        color: tone.danger,
+        badge: tone.danger("[disabled]"),
+      };
+    }
+    return base;
+  });
 }
 
 function formatChoiceLabel(skill: SkillMetadata): string {
   const wrapWidth = Math.max(24, Math.min(process.stdout?.columns ?? 80, 120) - 6);
-  const description = skill.description
-    ? "\n    " +
-      wrap(skill.description, {
-        width: wrapWidth,
-        indent: "",
-        newline: "\n",
-        trim: true,
-        cut: false,
-      }).replace(/\n/g, "\n    ")
-    : "";
+  const wrapped = wrap(skill.description, {
+    width: wrapWidth,
+    indent: "",
+    newline: "\n",
+    trim: true,
+    cut: false,
+  });
+  const description = wrapped && wrapped.length > 0 ? "\n    " + wrapped.replace(/\n/g, "\n    ") : "";
 
   return `${tone.primary(skill.name)}${description}`;
 }

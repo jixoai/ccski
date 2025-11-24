@@ -4,7 +4,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer as createHttpServer } from "node:http";
 import { parse } from "node:url";
 import type { SkillRegistryOptions } from "../core/registry.js";
@@ -216,8 +215,8 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
       }
 
       try {
-        const postReq = req as IncomingMessage & { auth?: unknown };
-        const postRes = res as ServerResponse;
+        const postReq = req as Parameters<(typeof entry.transport)["handlePostMessage"]>[0];
+        const postRes = res as Parameters<(typeof entry.transport)["handlePostMessage"]>[1];
         await entry.transport.handlePostMessage(postReq, postRes);
       } catch (error) {
         console.error("[ccski] Failed to handle SSE message", error);

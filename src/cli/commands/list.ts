@@ -23,7 +23,7 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
 
-  const includeDisabled = argv.all || argv.disabled;
+  const includeDisabled = Boolean(argv.all || argv.disabled);
   const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
 
   let skills = registry.getAll();
@@ -61,20 +61,26 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     if (!list.length) continue;
 
     sections.push(`${colors.underline(colors.bold(labels[location]))} (${list.length})`);
-    sections.push(
-      renderList(
-        list.map((skill) => ({
-          title: skill.name,
-          color: skill.disabled ? colors.red : undefined,
-          badge: skill.disabled ? colors.red("[disabled]") : undefined,
-          meta:
-            location === "plugin"
-              ? skill.pluginInfo?.pluginName ?? dim(location)
-              : dim(location),
-          description: skill.description,
-        }))
-      )
-    );
+    const listItems = list.map((skill) => {
+      const base = {
+        title: skill.name,
+        meta:
+          location === "plugin"
+            ? skill.pluginInfo?.pluginName ?? dim(location)
+            : dim(location),
+        ...(skill.description ? { description: skill.description } : {}),
+      };
+      if (skill.disabled) {
+        return {
+          ...base,
+          color: colors.red,
+          badge: colors.red("[disabled]"),
+        };
+      }
+      return base;
+    });
+
+    sections.push(renderList(listItems));
   }
 
   if (sections.length === 0) {

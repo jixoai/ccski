@@ -116,7 +116,12 @@ const installModule: CommandModule<unknown, InstallArgs> = {
       .option("global", { type: "boolean", default: false, description: "Install to ~/.claude/skills" })
       .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
-      .option("use", { type: "string", description: "Explicit SKILL.md or marketplace.json path inside source" })
+      .option("path", { type: "string", description: "Explicit SKILL.md or marketplace.json path inside source" })
+      .option("mode", {
+        choices: ["git", "file"] as const,
+        description: "Materialization mode (default: git for http/https sources, file otherwise)",
+      })
+      .option("branch", { type: "string", description: "Branch to checkout when using git mode" })
       .option("interactive", {
         alias: "i",
         type: "boolean",

@@ -55,6 +55,39 @@ function createRepoWithMarketplace(): string {
   return gitPath;
 }
 
+function createRepoWithPluginScopedSkills(): string {
+  const repoRoot = mkdtempSync(join(tmpdir(), "ccski-plugin-scope-"));
+
+  const pluginRoot = join(repoRoot, "plugins", "backend-development");
+  const skillDir = createSkill(join(pluginRoot, "skills"), "api-design-principles", "api design");
+
+  const marketplaceDir = join(repoRoot, ".claude-plugin");
+  mkdirSync(marketplaceDir, { recursive: true });
+  const marketplace = {
+    name: "test-market",
+    owner: { name: "tester", email: "tester@example.com" },
+    plugins: [
+      {
+        name: "backend-development",
+        description: "backend",
+        source: "./plugins/backend-development",
+        strict: false,
+        skills: ["./skills/api-design-principles"],
+      },
+    ],
+  };
+  writeFileSync(join(marketplaceDir, "marketplace.json"), JSON.stringify(marketplace, null, 2));
+
+  execSync("git init", { cwd: repoRoot, stdio: "ignore" });
+  execSync("git add .", { cwd: repoRoot, stdio: "ignore" });
+  execSync('git commit -m "init"', { cwd: repoRoot, stdio: "ignore" });
+
+  // expose path ending with .git so clone path triggers if desired
+  const gitPath = `${repoRoot}.git`;
+  execSync(`cp -R ${repoRoot} ${gitPath}`);
+  return gitPath.replace(/\.git$/, "");
+}
+
 function listInstalled(root: string): string[] {
   try {
     return execSync("ls", { cwd: root }).toString().trim().split(/\s+/).filter(Boolean);
@@ -94,6 +127,23 @@ describe("installCommand end-to-end", () => {
 
     const installed = listInstalled(join(cwd, ".claude/skills"));
     expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design"]);
+  });
+
+  it("resolves marketplace skills relative to plugin source directories", async () => {
+    const repo = createRepoWithPluginScopedSkills();
+
+    await installCommand({
+      source: `file://${repo}`,
+      global: false,
+      force: false,
+      override: false,
+      all: true,
+      _: [`file://${repo}`],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(join(cwd, ".claude/skills"));
+    expect(installed).toEqual(["api-design-principles"]);
   });
 
   it("installs single skill from SKILL.md file path", async () => {
