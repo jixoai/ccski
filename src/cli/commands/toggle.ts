@@ -1,13 +1,14 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { checkbox } from "@inquirer/prompts";
 import type { ArgumentsCamelCase } from "yargs";
 
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillMetadata } from "../../types/skill.js";
-import { colors, dim, error, renderList, setColorEnabled, success } from "../../utils/format.js";
+import { dim, error, heading, renderList, setColorEnabled, success, tone, warn } from "../../utils/format.js";
 import { rankStrings } from "../../utils/search.js";
+import { promptMultiSelect } from "../prompts/multiSelect.js";
+import { wrap } from "../../word-wrap/index.js";
 import { buildRegistryOptions } from "../registry-options.js";
 
 export interface ToggleArgs extends SkillRegistryOptions {
@@ -41,7 +42,11 @@ async function toggleCommand(mode: Mode, argv: ArgumentsCamelCase<ToggleArgs>): 
     mode === "disable" ? skills.filter((s) => !s.disabled) : skills.filter((s) => s.disabled);
 
   if (candidates.length === 0) {
-    console.log(mode === "disable" ? "No enabled skills found to disable." : "No disabled skills found to enable.");
+    console.log(
+      mode === "disable"
+        ? warn("No enabled skills found to disable.")
+        : warn("No disabled skills found to enable.")
+    );
     return;
   }
 
@@ -80,8 +85,10 @@ async function toggleCommand(mode: Mode, argv: ArgumentsCamelCase<ToggleArgs>): 
     }
   } catch (err) {
     if (err instanceof MultiSelectError) {
-      console.error(error(err.message));
-      console.log(err.listing);
+      const advisory = warn(`Input needed: ${err.message}`);
+      console.log(advisory);
+      console.log(err.listing.trimEnd());
+      console.log(`\n${advisory}`);
       process.exitCode = 1;
       return;
     }
@@ -103,11 +110,8 @@ async function pickSkills(
   argv: ArgumentsCamelCase<ToggleArgs>
 ): Promise<SkillMetadata[]> {
   const selectors = parseNames(argv);
-  const heading =
-    mode === "disable"
-      ? `${colors.underline(colors.bold("Enabled skills"))} (${candidates.length})`
-      : `${colors.underline(colors.bold("Disabled skills"))} (${candidates.length})`;
-  const listing = `${heading}\n${renderList(toListItems(candidates))}`;
+  const headingLabel = heading(mode === "disable" ? "Enabled skills" : "Disabled skills");
+  const listing = `${headingLabel} (${candidates.length})\n${renderList(toListItems(candidates))}`;
 
   if (argv.all) return candidates;
 
@@ -119,17 +123,18 @@ async function pickSkills(
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       throw new MultiSelectError("Interactive mode requires a TTY.", listing);
     }
-    console.log(listing + "\n");
-    const names = await checkbox({
+
+    // Keep UX aligned with install: no upfront list dump; colored preview of the final command.
+    const names = await promptMultiSelect({
       message: mode === "disable" ? "Select skills to disable" : "Select skills to enable",
-      pageSize: Math.min(12, Math.max(6, candidates.length)),
-      loop: false,
       choices: candidates.map((skill) => ({
-        name: `${skill.name} — ${skill.description}`,
         value: skill.name,
-        checked: true,
+        label: formatChoiceLabel(skill),
+        description: skill.description,
+        checked: false,
       })),
-      validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
+      defaultChecked: false,
+      command: { base: `ccski ${mode}` },
     });
 
     if (!Array.isArray(names) || names.length === 0) {
@@ -243,14 +248,30 @@ function enableSkill(skill: SkillMetadata, force: boolean): void {
 function toListItems(skills: SkillMetadata[]) {
   return skills.map((skill) => ({
     title: skill.name,
-    color: skill.disabled ? colors.red : undefined,
-    badge: skill.disabled ? colors.red("[disabled]") : undefined,
+    color: skill.disabled ? tone.danger : undefined,
+    badge: skill.disabled ? tone.danger("[disabled]") : undefined,
     meta:
       skill.location === "plugin"
         ? skill.pluginInfo?.pluginName ?? dim(skill.location)
         : dim(skill.location),
     description: skill.description,
   }));
+}
+
+function formatChoiceLabel(skill: SkillMetadata): string {
+  const wrapWidth = Math.max(24, Math.min(process.stdout?.columns ?? 80, 120) - 6);
+  const description = skill.description
+    ? "\n    " +
+      wrap(skill.description, {
+        width: wrapWidth,
+        indent: "",
+        newline: "\n",
+        trim: true,
+        cut: false,
+      }).replace(/\n/g, "\n    ")
+    : "";
+
+  return `${tone.primary(skill.name)}${description}`;
 }
 
 function capitalize(value: string): string {

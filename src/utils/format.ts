@@ -10,23 +10,51 @@ export function setColorEnabled(enabled: boolean): void {
   colors = createColors({ useColor: colorEnabled });
 }
 
+type Colorizer = (text: string) => string;
+
+const applyTone = (colorFn: Colorizer): Colorizer => (text) => (colorEnabled ? colorFn(text) : text);
+
+export const tone = {
+  primary: applyTone((text) => colors.blue(text)),
+  accent: applyTone((text) => colors.magenta(text)),
+  info: applyTone((text) => colors.cyan(text)),
+  success: applyTone((text) => colors.green(text)),
+  warning: applyTone((text) => colors.yellow(text)),
+  danger: applyTone((text) => colors.red(text)),
+  muted: applyTone((text) => colors.dim(text)),
+  bold: applyTone((text) => colors.bold(text)),
+  underline: applyTone((text) => colors.underline(text)),
+} as const;
+
 export function highlight(text: string, query: string): string {
   if (!colorEnabled) return text;
   const escaped = escapeRegExp(query);
   const regex = new RegExp(escaped, "gi");
-  return text.replace(regex, (match) => colors.bold(colors.green(match)));
+  return text.replace(regex, (match) => tone.bold(tone.success(match)));
 }
 
 export function dim(text: string): string {
-  return colorEnabled ? colors.dim(text) : text;
+  return tone.muted(text);
 }
 
 export function success(text: string): string {
-  return colorEnabled ? colors.green(text) : text;
+  return tone.success(text);
 }
 
 export function error(text: string): string {
-  return colorEnabled ? colors.red(text) : text;
+  return tone.danger(text);
+}
+
+export function warn(text: string): string {
+  return tone.warning(text);
+}
+
+export function info(text: string): string {
+  return tone.info(text);
+}
+
+export function heading(text: string): string {
+  return tone.underline(tone.bold(tone.accent(text)));
 }
 
 function escapeRegExp(value: string): string {
@@ -61,7 +89,7 @@ export function renderList(items: ListItem[]): string {
   return items
     .map((item) => {
       const title = padAnsi(item.title, titleWidth);
-      const coloredTitle = item.color ? item.color(title) : colors.blue(title);
+      const coloredTitle = item.color ? item.color(title) : tone.primary(title);
       const meta = item.meta ? `  ${dim(item.meta)}` : "";
       const badge = item.badge ? ` ${item.badge}` : "";
       const wrapWidth = Math.max(20, Math.min(process.stdout?.columns ?? 80, 120) - 4);

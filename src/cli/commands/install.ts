@@ -3,11 +3,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execSync } from "node:child_process";
-import { checkbox } from "@inquirer/prompts";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
-import { colors, error, renderList, setColorEnabled, success } from "../../utils/format.js";
+import { error, heading, renderList, setColorEnabled, success, tone, warn } from "../../utils/format.js";
 import { rankStrings } from "../../utils/search.js";
+import { promptMultiSelect } from "../prompts/multiSelect.js";
+import { wrap } from "../../word-wrap/index.js";
 
 export interface InstallArgs {
   source: string;
@@ -89,8 +90,10 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     installed.forEach((d) => console.log(` - ${d}`));
   } catch (err) {
     if (err instanceof MultiSkillSelectionError) {
-      console.error(error(`Install failed: ${err.message}`));
-      console.log(err.listing);
+      const advisory = warn(`Input needed: ${err.message}`);
+      console.log(advisory);
+      console.log(err.listing.trimEnd());
+      console.log(`\n${advisory}`);
     } else {
       console.error(error(`Install failed: ${err instanceof Error ? err.message : String(err)}`));
     }
@@ -264,17 +267,17 @@ function buildSkillEntries(dirs: string[]): SkillEntry[] {
   });
 }
 
-async function promptSelectSkills(entries: SkillEntry[]): Promise<SkillEntry[]> {
-  const pickedNames = await checkbox({
-    message: "Select skills to install",
-    pageSize: Math.min(12, Math.max(6, entries.length)),
-    loop: false,
+async function promptSelectSkills(entries: SkillEntry[], sourceLabel: string): Promise<SkillEntry[]> {
+  const pickedNames = await promptMultiSelect({
+    message: `Select skills to install from ${sourceLabel}`,
     choices: entries.map((e) => ({
-      name: `${e.name} — ${e.description}`,
       value: e.name,
+      label: formatChoiceLabel(e),
+      description: e.description,
       checked: true,
     })),
-    validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
+    defaultChecked: true,
+    command: { base: "ccski install", staticArgs: [sourceLabel] },
   });
 
   if (!Array.isArray(pickedNames) || pickedNames.length === 0) {
@@ -313,8 +316,7 @@ async function selectSkills(
         listing
       );
     }
-    console.log(listing + "\n");
-    const picked = await promptSelectSkills(entries);
+    const picked = await promptSelectSkills(entries, sourceLabel);
     return picked;
   }
 
@@ -357,6 +359,22 @@ async function selectSkills(
 }
 
 function formatSkillListing(entries: SkillEntry[], label: string): string {
-  return `${colors.underline(colors.bold(`Available skills from ${label}`))} (${entries.length})\n` +
+  return `${heading(`Available skills from ${label}`)} (${entries.length})\n` +
     renderList(entries.map((e) => ({ title: e.name, description: e.description })));
+}
+
+function formatChoiceLabel(entry: SkillEntry): string {
+  const wrapWidth = Math.max(24, Math.min(process.stdout?.columns ?? 80, 120) - 6);
+  const description = entry.description
+    ? "\n    " +
+      wrap(entry.description, {
+        width: wrapWidth,
+        indent: "",
+        newline: "\n",
+        trim: true,
+        cut: false,
+      }).replace(/\n/g, "\n    ")
+    : "";
+
+  return `${tone.primary(entry.name)}${description}`;
 }

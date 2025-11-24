@@ -2,13 +2,13 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import { checkbox } from "@inquirer/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installCommand } from "../src/cli/commands/install.js";
+import { promptMultiSelect } from "../src/cli/prompts/multiSelect.js";
 
-vi.mock("@inquirer/prompts", () => ({
-  checkbox: vi.fn(),
+vi.mock("../src/cli/prompts/multiSelect.js", () => ({
+  promptMultiSelect: vi.fn(),
 }));
 
 function createSkill(root: string, name: string, desc = "demo"): string {
@@ -76,7 +76,7 @@ describe("installCommand end-to-end", () => {
   afterEach(() => {
     process.exitCode = 0;
     process.chdir(originalCwd);
-    vi.mocked(checkbox).mockReset();
+    vi.mocked(promptMultiSelect).mockReset();
   });
 
   it("installs all skills via marketplace from repo root", async () => {
@@ -163,8 +163,10 @@ describe("installCommand end-to-end", () => {
     } as any);
 
     expect(process.exitCode).toBe(1);
-    expect(errorSpy.mock.calls.flat().join(" ")).toMatch(/Multiple skills found/);
-    expect(logSpy.mock.calls.flat().join(" ")).toMatch(/algorithmic-art/);
+    const combinedLogs = logSpy.mock.calls.flat().join(" ");
+    expect(combinedLogs).toMatch(/Multiple skills found/);
+    expect(combinedLogs).toMatch(/algorithmic-art/);
+    expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
     logSpy.mockRestore();
     process.exitCode = 0;
@@ -209,7 +211,7 @@ describe("installCommand end-to-end", () => {
 
   it("respects interactive selection instead of installing all", async () => {
     const repo = createRepoWithMarketplace();
-    vi.mocked(checkbox).mockResolvedValueOnce(["canvas-design"]);
+    vi.mocked(promptMultiSelect).mockResolvedValueOnce(["canvas-design"]);
     const originalStdinTTY = process.stdin.isTTY;
     const originalStdoutTTY = process.stdout.isTTY;
     setIsTTY(true);

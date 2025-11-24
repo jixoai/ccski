@@ -1,66 +1,23 @@
-# ccski - Claude Code Skills Manager
+# ccski – Claude Code Skills Manager
 
-**ccski** 是一个命令行工具,为 AI 编程助手提供 Claude Code Skills 系统的 CLI 和 MCP 接口。
+ccski is a CLI + MCP server that lets any AI coding assistant discover, install, enable/disable, and serve Claude Code-compatible skills. It is purpose-built to be lightweight, type-safe, and easy to embed in your editor or agent toolchain.
 
-## 特性
+## 1) Positioning & MCP quick start
 
-✅ **完整的 Skill 发现** - 支持用户目录、项目目录和 Claude Code 插件市场
-✅ **双接口设计** - CLI (人类用户) + MCP (AI Agent)
-✅ **插件市场支持** - 自动发现 Claude Code 安装的插件 skills
-✅ **优先级解析** - 项目级覆盖全局级,避免冲突
-✅ **命名空间** - `plugin:skill` 格式,支持短名称
-✅ **类型安全** - 100% TypeScript,零 any
+- **What it is**: a thin, batteries-included manager for SKILL.md–based skill packs (local folders, git repos, plugin marketplaces).
+- **Who it’s for**: humans running CLI workflows and agents connecting over MCP.
 
-## 安装
+### Start MCP in one line
 
 ```bash
-# 通过 npm (待发布)
-npm install -g ccski
-
-# 通过 pnpm
-pnpm add -g ccski
-
-# 开发模式
-git clone https://github.com/jixoai/ccski
-cd ccski
-pnpm install
-pnpm dev <command>
+npx ccski mcp
 ```
 
-## 使用方式
+Common MCP registrations:
 
-### CLI 命令
-
-```bash
-# 列出所有可用的 skills
-ccski list
-
-# 显示 skill 的详细信息
-ccski info <skill-name>
-
-# 搜索 skills (待实现)
-ccski search <query>
-
-# 验证 skill 格式 (待实现)
-ccski validate <path>
-
-# 启动 MCP 服务器
-ccski mcp
-```
-
-### MCP 集成
-
-将 ccski 添加到你的 AI Agent 的 MCP 配置中:
-
-#### Claude Code
-
-```bash
-claude mcp add --transport stdio ccski -- npx ccski mcp
-```
-
-#### Cursor / Windsurf
-
-在 MCP 配置文件中添加:
+- **Codex CLI**: `codex mcp add skills -- npx ccski mcp`
+- **Claude desktop / CLI**: `claude mcp add --transport stdio ccski -- npx ccski mcp`
+- **Cursor / Windsurf / VS Code MCP plugins** (config excerpt):
 
 ```json
 {
@@ -73,35 +30,62 @@ claude mcp add --transport stdio ccski -- npx ccski mcp
 }
 ```
 
-## Skill 发现
+Run with `--skill-dir` to add extra roots, or `--no-refresh` to disable live reload.
 
-ccski 按优先级从以下目录发现 skills:
+## 2) Core CLI surface (human-friendly)
 
-1. `$PWD/.agent/skills/` (项目 universal - 最高优先级)
-2. `$PWD/.claude/skills/` (项目 Claude Code)
-3. `~/.agent/skills/` (全局 universal)
-4. `~/.claude/skills/` (全局 Claude Code)
-5. Claude Code 插件市场 (最低优先级)
+| Command | Purpose |
+| --- | --- |
+| `ccski list` | Show discovered skills (projects, home, plugin marketplace) with status badges |
+| `ccski info <name>` | Inspect metadata and preview content |
+| `ccski install <source> [-i|--all|--use]` | Install skills from git/dir/marketplace; interactive picker shows final one-shot command |
+| `ccski enable [names...] [-i|--all]` | Restore `.SKILL.md` → `SKILL.md`; interactive defaults **unchecked** |
+| `ccski disable [names...] [-i|--all]` | Disable skills by flipping to `.SKILL.md` |
+| `ccski mcp` | Start MCP server (stdio/http/sse) |
+| `ccski validate <path>` | Validate SKILL.md or directory structure |
 
-## 开发
+Interactive pickers across install/enable/disable share the same layout, colors, and live “Command:” preview so you can copy/paste the equivalent non-interactive invocation.
+
+## 3) Thanks & lineage
+
+- **openskills** — established the SKILL.md authoring pattern; we align with that spec for compatibility.
+- **universal-skills** — offers a curated, ready-to-use skill set; ccski focuses on management and transport, not bundling content.
+
+Key differences: ccski is a manager/server (no baked-in skill corpus), MCP-first, and optimized for multi-root discovery plus install/enable/disable ergonomics.
+
+## 4) Contributing & architecture at a glance
+
+### Fast start
+- `pnpm install`
+- `pnpm test` (Vitest)
+- `pnpm ts` (type-check)
+- `pnpm build` (tsdown)
+
+### Architecture map
+- Entry: `src/cli.ts` (yargs CLI, shared color flags)
+- Commands: `src/cli/commands/*.ts`
+- Interactive UI: `src/cli/prompts/multiSelect.ts` (shared checkbox with live command preview)
+- Formatting: `src/utils/format.ts` (tone helpers; avoid ad-hoc colors)
+- Skill core: `src/core/*` (discovery, registry, parsing)
+- Tests: `tests/*.test.ts` (Vitest + bun runtime for CLI e2e)
+
+Suggested reading order: `src/utils/format.ts` → `src/cli/prompts/multiSelect.ts` → command files (install, toggle) → `src/core/registry.ts`.
+
+### Code style highlights
+- TypeScript strict; no `any`/`as any`/`@ts-nocheck` unless unavoidable for third-party types.
+- Keep CLI colors via `tone/heading/warn/info/success/error`; don’t hardcode colorette directly.
+- Prefer small files (<200 lines) or refactor into folders when complexity grows.
+- Tests: Vitest with jsdom where needed; integration tests exercise CLI via bun runner.
+- Package manager: pnpm; scripts live in `package.json`.
+
+### Development scripts
 
 ```bash
-# 安装依赖
-pnpm install
-
-# 类型检查
-pnpm ts
-
-# 运行测试
-pnpm test
-
-# 构建
-pnpm build
-
-# 格式化代码
-pnpm fmt
+pnpm install       # deps
+pnpm test          # full test suite
+pnpm ts            # type check
+pnpm build         # bundle with tsdown
+pnpm fmt           # prettier + organize imports + tailwind plugin
 ```
 
-## License
-
-MIT
+Happy hacking — PRs welcome!
