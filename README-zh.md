@@ -50,7 +50,12 @@ install/enable/disable 的交互式选择器共享同一套布局、颜色和“
 - **openskills** —— 奠定了 SKILL.md 的编写模式；ccski 与其保持兼容。
 - **universal-skills** —— 提供开箱即用的技能合集；ccski 侧重管理与传输，不内置技能内容。
 
-核心区别：ccski 是管理/服务层（不打包技能语料），以 MCP 为中心，强调多根目录发现以及 install/enable/disable 的一致体验。
+融合与区别：
+- 我们结合了 **universal-skills 的 MCP 理念** 和 **openskills 的 CLI 体验**，同一套工具既服务代理又服务人工操作。
+- ccski 额外支持 **扫描 Claude Code 插件内自带的 skills**，这是 universal-skills 与 openskills 均未覆盖的能力。
+- `install` 命令支持多种灵活写法（git/目录/SKILL.md/marketplace），`-i` 进入交互模式并提供实时的“一次性命令”预览。
+
+总结：ccski 是管理/服务层（不内置技能语料），以 MCP 为中心，支持多根目录发现，并强化了 install/enable/disable 的一致交互体验。
 
 ## 4）贡献者指南与架构速览
 

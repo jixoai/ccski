@@ -50,7 +50,12 @@ Interactive pickers across install/enable/disable share the same layout, colors,
 - **openskills** — established the SKILL.md authoring pattern; we align with that spec for compatibility.
 - **universal-skills** — offers a curated, ready-to-use skill set; ccski focuses on management and transport, not bundling content.
 
-Key differences: ccski is a manager/server (no baked-in skill corpus), MCP-first, and optimized for multi-root discovery plus install/enable/disable ergonomics.
+Key differences and what we fused:
+- We blend **universal-skills’ MCP-first philosophy** with **openskills’ CLI ergonomics** so the same tool serves both agents and humans.
+- ccski uniquely **scans skills shipped inside Claude Code plugins**, which universal-skills and openskills don’t cover.
+- The `install` command accepts flexible sources (git URLs, marketplace, SKILL.md paths) and `-i` provides an interactive picker with a live one-shot command preview.
+
+Bottom line: ccski is a manager/server (no baked-in corpus), MCP-first, multi-root-aware, with a friendlier install/enable/disable workflow.
 
 ## 4) Contributing & architecture at a glance
 
