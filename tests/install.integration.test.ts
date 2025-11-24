@@ -2,10 +2,14 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
-import inquirer from "inquirer";
+import { checkbox } from "@inquirer/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installCommand } from "../src/cli/commands/install.js";
+
+vi.mock("@inquirer/prompts", () => ({
+  checkbox: vi.fn(),
+}));
 
 function createSkill(root: string, name: string, desc = "demo"): string {
   const dir = join(root, name);
@@ -72,6 +76,7 @@ describe("installCommand end-to-end", () => {
   afterEach(() => {
     process.exitCode = 0;
     process.chdir(originalCwd);
+    vi.mocked(checkbox).mockReset();
   });
 
   it("installs all skills via marketplace from repo root", async () => {
@@ -204,7 +209,7 @@ describe("installCommand end-to-end", () => {
 
   it("respects interactive selection instead of installing all", async () => {
     const repo = createRepoWithMarketplace();
-    const promptSpy = vi.spyOn(inquirer, "prompt").mockResolvedValue({ picked: ["canvas-design"] });
+    vi.mocked(checkbox).mockResolvedValueOnce(["canvas-design"]);
     const originalStdinTTY = process.stdin.isTTY;
     const originalStdoutTTY = process.stdout.isTTY;
     setIsTTY(true);
@@ -222,7 +227,6 @@ describe("installCommand end-to-end", () => {
     const installed = listInstalled(join(cwd, ".claude/skills"));
     expect(installed).toEqual(["canvas-design"]);
 
-    promptSpy.mockRestore();
     setIsTTY(originalStdinTTY ?? false, originalStdoutTTY ?? false);
   });
 });

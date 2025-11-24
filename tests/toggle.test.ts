@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import inquirer from "inquirer";
+import { checkbox } from "@inquirer/prompts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { disableCommand, enableCommand } from "../src/cli/commands/toggle.js";
@@ -15,6 +15,10 @@ function createSkill(root: string, name: string, disabled = false): string {
   }
   return dir;
 }
+
+vi.mock("@inquirer/prompts", () => ({
+  checkbox: vi.fn(),
+}));
 
 describe("enable/disable commands", () => {
   let cwd: string;
@@ -34,6 +38,7 @@ describe("enable/disable commands", () => {
     process.exitCode = 0;
     setIsTTY(originalStdinTTY ?? false, originalStdoutTTY ?? false);
     vi.restoreAllMocks();
+    vi.mocked(checkbox).mockReset();
   });
 
   it("disables a named skill", async () => {
@@ -101,7 +106,7 @@ describe("enable/disable commands", () => {
   it("uses interactive picker when -i is provided", async () => {
     createSkill(cwd, "delta");
     createSkill(cwd, "echo");
-    const promptSpy = vi.spyOn(inquirer, "prompt").mockResolvedValue({ picked: ["echo"] });
+    vi.mocked(checkbox).mockResolvedValueOnce(["echo"]);
 
     await disableCommand({
       interactive: true,
@@ -111,7 +116,7 @@ describe("enable/disable commands", () => {
       $0: "ccski",
     } as any);
 
-    expect(promptSpy).toHaveBeenCalled();
+    expect(checkbox).toHaveBeenCalled();
     expect(existsSync(join(cwd, "echo", ".SKILL.md"))).toBe(true);
     expect(existsSync(join(cwd, "delta", "SKILL.md"))).toBe(true);
   });

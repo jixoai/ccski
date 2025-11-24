@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execSync } from "node:child_process";
-import inquirer from "inquirer";
+import { checkbox } from "@inquirer/prompts";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
 import { colors, error, renderList, setColorEnabled, success } from "../../utils/format.js";
@@ -265,24 +265,19 @@ function buildSkillEntries(dirs: string[]): SkillEntry[] {
 }
 
 async function promptSelectSkills(entries: SkillEntry[]): Promise<SkillEntry[]> {
-  const { picked } = await inquirer.prompt<{ picked: string[] }>([
-    {
-      type: "checkbox",
-      name: "picked",
-      message: "Select skills to install",
-      pageSize: Math.min(12, Math.max(6, entries.length)),
-      loop: false,
-      choices: entries.map((e) => ({
-        name: `${e.name} — ${e.description}`,
-        value: e.name,
-        checked: true,
-      })),
-      validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
-    },
-  ]);
+  const pickedNames = await checkbox({
+    message: "Select skills to install",
+    pageSize: Math.min(12, Math.max(6, entries.length)),
+    loop: false,
+    choices: entries.map((e) => ({
+      name: `${e.name} — ${e.description}`,
+      value: e.name,
+      checked: true,
+    })),
+    validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
+  });
 
-  const pickedNames: string[] = Array.isArray(picked) ? picked : [];
-  if (!pickedNames.length) {
+  if (!Array.isArray(pickedNames) || pickedNames.length === 0) {
     throw new Error("No skills selected.");
   }
 

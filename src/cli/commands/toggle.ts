@@ -1,6 +1,6 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import inquirer from "inquirer";
+import { checkbox } from "@inquirer/prompts";
 import type { ArgumentsCamelCase } from "yargs";
 
 import type { SkillRegistryOptions } from "../../core/registry.js";
@@ -120,22 +120,21 @@ async function pickSkills(
       throw new MultiSelectError("Interactive mode requires a TTY.", listing);
     }
     console.log(listing + "\n");
-    const { picked } = await inquirer.prompt<{ picked: string[] }>([
-      {
-        type: "checkbox",
-        name: "picked",
-        message: mode === "disable" ? "Select skills to disable" : "Select skills to enable",
-        pageSize: Math.min(12, Math.max(6, candidates.length)),
-        loop: false,
-        choices: candidates.map((skill) => ({
-          name: `${skill.name} — ${skill.description}`,
-          value: skill.name,
-        })),
-        validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
-      },
-    ]);
+    const names = await checkbox({
+      message: mode === "disable" ? "Select skills to disable" : "Select skills to enable",
+      pageSize: Math.min(12, Math.max(6, candidates.length)),
+      loop: false,
+      choices: candidates.map((skill) => ({
+        name: `${skill.name} — ${skill.description}`,
+        value: skill.name,
+        checked: true,
+      })),
+      validate: (value) => (Array.isArray(value) && value.length > 0 ? true : "Pick at least one skill"),
+    });
 
-    const names = Array.isArray(picked) ? picked : [];
+    if (!Array.isArray(names) || names.length === 0) {
+      throw new MultiSelectError("No skills selected.", listing);
+    }
     const pickedSet = new Set(names.map((n) => n.toLowerCase()));
     return candidates.filter((c) => pickedSet.has(c.name.toLowerCase()));
   }
