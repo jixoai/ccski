@@ -135,17 +135,20 @@ DEMO
 ---
 
 我发现你还有checkBundledResources这样一个函数，我对它的必要性表示怀疑，因为我在mcp的调用返回里面看到：
+
 ```
 name: my-skill
 path: /Users/kzf/Dev/GitHub/jixoai-labs/ccski/.claude/skills/my-skill
 location: project
 assets: true <- 这个标记
 ```
+
 首先你得告诉我这件事情的意义是什么？它是ClaudeCode Skills的标准吗？
 
 ---
 
 我觉得 universal-skills 的mcp返回内容结构是更好的，这种结构也是官方claude-code的 tools:Skill 的内置结构：
+
 ```
 Execute a skill within the main conversation
 
@@ -229,8 +232,9 @@ Important:
 ---
 
 我们不需要刻意做“快捷本地复制”，如果需要，也是通过`file://`协议去支持。还有，要支持子目录，比如我给你`https://github.com/anthropics/skills/tree/main/canvas-design`，那么这个目录下如果有`SKILL.md`文件，那么就作为一个skill来安装。如果这个目录下有`.claude-plugin`目录，那么就要读取`.claude-plugin/marketplace.json`文件，它会列出相应的skills。
- 
+
 注意，claude code 官方已经有插件安装的能力：
+
 ```
 claude plugin
 Usage: claude plugin [options] [command]
@@ -250,6 +254,7 @@ Commands:
   disable <plugin>           Disable an enabled plugin
   help [command]             display help for command
 ```
+
 理论上我们是不用做install的，但是我仍然要你做install，主要的差异在于，我们并不是`plugin`，而是直接将skills安装到 user 或者 project，如果要插件化的管理，那么开发者直接用`claude plugin install`去做管理就行了。
 
 ---
@@ -260,14 +265,17 @@ install的时候，支持 `--override/--force` 来进行强制覆盖。
 ---
 
 进一步提升 install 命令的可靠性：
+
 ```
 > bun src/cli.ts install https://github.com/anthropics/skills
 
 Install failed: No SKILL.md found in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c80000gp/T/ccski-install-qxAIax
  ELIFECYCLE  Command failed with exit code 1.
 ```
+
 这异常不该发生！
 我明确说明，我们应该尝试这样几种情况：
+
 - `ccski install https://github.com/anthropics/skills/blob/main/.claude-plugin/marketplace.json`
   - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=.claude-plugin/marketplace.json`
   - 自动发现当前文件就是`marketplace.json`
@@ -286,7 +294,6 @@ Install failed: No SKILL.md found in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c8000
 - `ccski install https://github.com/anthropics/skills/blob/main/algorithmic-art/`
   - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=algorithmic-art/`
   - 自动发现当前文件夹存在`SKILL.md`
-
 
 请你提供完全的测试，覆盖我提到的几种情况。
 并且要加入“防呆”测试。
@@ -311,11 +318,47 @@ Install failed: No SKILL.md found in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c8000
 ---
 
 我们还需要支持`ccski enable/disable <skill-name>` 的功能：
+
 1. 原理是：`disable`: 将 `SKILL.md` 重命名成 `.SKILL.md`，反之，就是`enable`
 2. 如果目录中，同时存在`SKILL.md`和`.SKILL.md`两个文件，那么无法`enable/disable`需要报告异常，不会工作，除非强制使用`--force/--override`来忽略异常，强制覆盖
 3. 在`ccski list`命令行中，新增可选参数：`--all`或者`--disabled`，可以列出被禁用的skill列表，默认显示成“红色”，并且有明确的禁用标志，方便NO_COLOR也能正确辨别(mcp不需要支持这个功能)
 4. `ccski enable/disable`同样支持`-i, --interactive`来开启交互模式。enable就列出所有被禁用的skills，disable就列出所有可用的skills，渲染方案也对齐 list/search 的效果。
 
-
 确保测试覆盖率达标，防呆体验达标、可读性达标！
 完成所有任务后，提交所有文件（包括CHAT.md）并 git push
+
+---
+
+还有，你自己看看这个输出：
+
+```
+pnpm ccski install https://github.com/anthropics/skills
+```
+
+这个体验很不好：
+
+1. 首先这不属于“Install failed:”，应该属于“参数不足”，需要用户进行更多的输入，所以不该是红色。使用蓝色、黄色、绿色、紫色等颜色会更好
+   - 具体什么颜色，我们整个cli需要有一套统一的颜色语义，这点你一直没有做好，我现在明确要求你定义好这些颜色语义。然后放在 README.md 的 `## 开发`这一章节
+2. 然后就是 `Multiple skills found` 这一段提示，你是放在顶部了，它应该放在底部，因为技能可能非常多，超过一个屏幕，打印在底部，终端用户的体验能更友好。或者最保险的方式，就是头尾都打印。
+
+---
+
+我还测试了交互式安装：`pnpm ccski install https://github.com/anthropics/skills -i`，它的问题是：
+
+1. 完全没必要在开头打印所有的技能，我们的 prompts 已经可以渲染出所有的技能了。
+2. 另外，虽然我们用了第三方库来渲染我们的prompts，但是样式上也应该“尽可能”和 renderList 保持一致
+
+---
+
+1. `ccski enable/disable`的体验请和我们刚刚升级`install`对齐，在代码注释中要明确说明，它们的体验都应该保持一致类似。
+2. `ccski enable/disable -i`的交互模式，默认不应该“选中”
+3. `ccski enable/disable/install -i`的交互模式都会启动一个 prompts 交互组件，能否做到：随着选中项的变更，底部显示成一个一次性指令：比如我选中了3个技能，对应底部状态就显示出`ccski enable a-skill b-skill c-skill`，注意，这里提供颜色上的语义辅助支持。
+
+---
+
+编写README.md：
+
+1. 中英双语（README-zh.md）
+2. 首先介绍这个ccski这个cli工具的定位，以及如何启动mcp，提供常见cli工具的mcp配置方法（比如`codex mcp add skills -- npx ccski mcp`）
+3. 然后介绍面向ccski内置的一些功能 list/enable/disable/install
+4. 接着为贡献者开发者提供一些简单的入门教程、架构简介，源码阅读顺序、以及一些代码规范

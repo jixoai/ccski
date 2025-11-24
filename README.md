@@ -16,7 +16,6 @@ npx ccski mcp
 Common MCP registrations:
 
 - **Codex CLI**: `codex mcp add skills -- npx ccski mcp`
-- **Claude desktop / CLI**: `claude mcp add --transport stdio ccski -- npx ccski mcp`
 - **Cursor / Windsurf / VS Code MCP plugins** (config excerpt):
 
 ```json
@@ -34,15 +33,15 @@ Run with `--skill-dir` to add extra roots, or `--no-refresh` to disable live rel
 
 ## 2) Core CLI surface (human-friendly)
 
-| Command | Purpose |
-| --- | --- |
-| `ccski list` | Show discovered skills (projects, home, plugin marketplace) with status badges |
-| `ccski info <name>` | Inspect metadata and preview content |
-| `ccski install <source> [-i|--all|--use]` | Install skills from git/dir/marketplace; interactive picker shows final one-shot command |
-| `ccski enable [names...] [-i|--all]` | Restore `.SKILL.md` → `SKILL.md`; interactive defaults **unchecked** |
-| `ccski disable [names...] [-i|--all]` | Disable skills by flipping to `.SKILL.md` |
-| `ccski mcp` | Start MCP server (stdio/http/sse) |
-| `ccski validate <path>` | Validate SKILL.md or directory structure |
+| Command                                     | Purpose                                                                                  |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ccski list`                                | Show discovered skills (projects, home, plugin marketplace) with status badges           |
+| `ccski info <name>`                         | Inspect metadata and preview content                                                     |
+| `ccski install <source> [-i\|--all\|--use]` | Install skills from git/dir/marketplace; interactive picker shows final one-shot command |
+| `ccski enable [names...] [-i\|--all]`       | Restore `.SKILL.md` → `SKILL.md`; interactive defaults **unchecked**                     |
+| `ccski disable [names...] [-i\|--all]`      | Disable skills by flipping to `.SKILL.md`                                                |
+| `ccski mcp`                                 | Start MCP server (stdio/http/sse)                                                        |
+| `ccski validate <path>`                     | Validate SKILL.md or directory structure                                                 |
 
 Interactive pickers across install/enable/disable share the same layout, colors, and live “Command:” preview so you can copy/paste the equivalent non-interactive invocation.
 
@@ -56,12 +55,14 @@ Key differences: ccski is a manager/server (no baked-in skill corpus), MCP-first
 ## 4) Contributing & architecture at a glance
 
 ### Fast start
+
 - `pnpm install`
 - `pnpm test` (Vitest)
 - `pnpm ts` (type-check)
 - `pnpm build` (tsdown)
 
 ### Architecture map
+
 - Entry: `src/cli.ts` (yargs CLI, shared color flags)
 - Commands: `src/cli/commands/*.ts`
 - Interactive UI: `src/cli/prompts/multiSelect.ts` (shared checkbox with live command preview)
@@ -72,6 +73,7 @@ Key differences: ccski is a manager/server (no baked-in skill corpus), MCP-first
 Suggested reading order: `src/utils/format.ts` → `src/cli/prompts/multiSelect.ts` → command files (install, toggle) → `src/core/registry.ts`.
 
 ### Code style highlights
+
 - TypeScript strict; no `any`/`as any`/`@ts-nocheck` unless unavoidable for third-party types.
 - Keep CLI colors via `tone/heading/warn/info/success/error`; don’t hardcode colorette directly.
 - Prefer small files (<200 lines) or refactor into folders when complexity grows.

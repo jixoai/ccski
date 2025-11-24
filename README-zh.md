@@ -16,7 +16,6 @@ npx ccski mcp
 常见 MCP 注册方式：
 
 - **Codex CLI**：`codex mcp add skills -- npx ccski mcp`
-- **Claude 桌面 / CLI**：`claude mcp add --transport stdio ccski -- npx ccski mcp`
 - **Cursor / Windsurf / VS Code MCP 插件**（配置片段）：
 
 ```json
@@ -34,15 +33,15 @@ npx ccski mcp
 
 ## 2）面向人的核心 CLI
 
-| 命令 | 作用 |
-| --- | --- |
-| `ccski list` | 按优先级列出已发现技能（项目、本机、插件市场）并显示状态 |
-| `ccski info <name>` | 查看元数据与内容预览 |
-| `ccski install <source> [-i|--all|--use]` | 从 git/目录/marketplace 安装；交互式选择器会显示可复制的最终命令 |
-| `ccski enable [names...] [-i|--all]` | `.SKILL.md` → `SKILL.md`；交互模式默认**不选中** |
-| `ccski disable [names...] [-i|--all]` | 反向操作，将技能禁用 |
-| `ccski mcp` | 启动 MCP（stdio/http/sse） |
-| `ccski validate <path>` | 校验 SKILL.md 或技能目录结构 |
+| 命令                                        | 作用                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `ccski list`                                | 按优先级列出已发现技能（项目、本机、插件市场）并显示状态         |
+| `ccski info <name>`                         | 查看元数据与内容预览                                             |
+| `ccski install <source> [-i\|--all\|--use]` | 从 git/目录/marketplace 安装；交互式选择器会显示可复制的最终命令 |
+| `ccski enable [names...] [-i\|--all]`       | `.SKILL.md` → `SKILL.md`；交互模式默认**不选中**                 |
+| `ccski disable [names...] [-i\|--all]`      | 反向操作，将技能禁用                                             |
+| `ccski mcp`                                 | 启动 MCP（stdio/http/sse）                                       |
+| `ccski validate <path>`                     | 校验 SKILL.md 或技能目录结构                                     |
 
 install/enable/disable 的交互式选择器共享同一套布局、颜色和“Command:” 实时预览，便于复制等效的非交互命令。
 
@@ -56,12 +55,14 @@ install/enable/disable 的交互式选择器共享同一套布局、颜色和“
 ## 4）贡献者指南与架构速览
 
 ### 开发起步
+
 - `pnpm install`
 - `pnpm test`（Vitest）
 - `pnpm ts`（类型检查）
 - `pnpm build`（tsdown 打包）
 
 ### 架构地图
+
 - 入口：`src/cli.ts`（yargs CLI，统一颜色开关）
 - 命令：`src/cli/commands/*.ts`
 - 交互 UI：`src/cli/prompts/multiSelect.ts`（共享复选 + 实时命令预览）
@@ -72,6 +73,7 @@ install/enable/disable 的交互式选择器共享同一套布局、颜色和“
 推荐阅读顺序：`src/utils/format.ts` → `src/cli/prompts/multiSelect.ts` → 命令文件（install、toggle）→ `src/core/registry.ts`。
 
 ### 代码规范要点
+
 - TypeScript 严格模式；避免 `any`/`as any`/`@ts-nocheck`（除非三方类型不可控）。
 - CLI 颜色统一用 `tone/heading/warn/info/success/error`，不要直接调用 colorette。
 - 单文件尽量 <200 行，复杂度上升时拆文件夹。

@@ -1,15 +1,15 @@
 {
   "name": "ccski",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Claude Code Skills Manager - CLI and MCP interface for managing skills across AI agents",
   "type": "module",
   "bin": {
-    "ccski": "./dist/cli.js"
+    "ccski": "./dist/cli.mjs"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
     }
   },
   "files": [
