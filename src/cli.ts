@@ -8,6 +8,7 @@ import { mcpCommand, type McpArgs } from "./cli/commands/mcp.js";
 import { searchCommand, type SearchArgs } from "./cli/commands/search.js";
 import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
 import { installCommand, type InstallArgs } from "./cli/commands/install.js";
+import { disableCommand, enableCommand, type ToggleArgs } from "./cli/commands/toggle.js";
 
 const listModule: CommandModule<unknown, ListArgs> = {
   command: "list",
@@ -18,6 +19,16 @@ const listModule: CommandModule<unknown, ListArgs> = {
         alias: "f",
         choices: ["plain", "json"] as const,
         default: "plain" as const,
+      })
+      .option("all", {
+        type: "boolean",
+        default: false,
+        description: "Show enabled and disabled skills",
+      })
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Show only disabled skills",
       })
       .option("scan-default-dirs", {
         type: "boolean",
@@ -110,10 +121,38 @@ const installModule: CommandModule<unknown, InstallArgs> = {
         alias: "i",
         type: "boolean",
         default: false,
-        description: "Interactively choose skills (non-TTY will auto-select all)",
+        description: "Interactively choose skills (requires TTY)",
       })
       .option("all", { alias: "a", type: "boolean", default: false, description: "Install all discovered skills" }) as Argv<InstallArgs>,
   handler: installCommand,
+};
+
+const disableModule: CommandModule<unknown, ToggleArgs> = {
+  command: "disable [names...]",
+  describe: "Disable skills by renaming SKILL.md to .SKILL.md",
+  builder: (cmd: Argv<unknown>): Argv<ToggleArgs> =>
+    cmd
+      .positional("names", { type: "string", array: true })
+      .option("interactive", { alias: "i", type: "boolean", default: false, description: "Interactively choose skills to disable" })
+      .option("all", { alias: "a", type: "boolean", default: false, description: "Disable all available skills" })
+      .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
+      .option("override", { type: "boolean", default: false, description: "Alias for --force" })
+      .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
+  handler: disableCommand,
+};
+
+const enableModule: CommandModule<unknown, ToggleArgs> = {
+  command: "enable [names...]",
+  describe: "Enable skills by restoring SKILL.md from .SKILL.md",
+  builder: (cmd: Argv<unknown>): Argv<ToggleArgs> =>
+    cmd
+      .positional("names", { type: "string", array: true })
+      .option("interactive", { alias: "i", type: "boolean", default: false, description: "Interactively choose skills to enable" })
+      .option("all", { alias: "a", type: "boolean", default: false, description: "Enable all disabled skills" })
+      .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
+      .option("override", { type: "boolean", default: false, description: "Alias for --force" })
+      .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
+  handler: enableCommand,
 };
 
 await yargs(hideBin(process.argv))
@@ -158,6 +197,8 @@ await yargs(hideBin(process.argv))
   .command(validateModule)
   .command(mcpModule)
   .command(installModule)
+  .command(disableModule)
+  .command(enableModule)
   .demandCommand(1, "Please provide a command")
   .strict()
   .help()

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +42,25 @@ describe("discoverSkills", () => {
     const result = discoverSkills({ customDirs: [root], scanDefaultDirs: false });
 
     expect(result.skills.map((skill) => skill.name)).toContain("deep-skill");
+  });
+
+  it("only includes disabled skills when explicitly requested", () => {
+    const root = mkdtempSync(join(tmpdir(), "ccski-disabled-"));
+    const skillDir = createSkill(root, "disabled-demo");
+
+    // rename to .SKILL.md to simulate disabled
+    renameSync(join(skillDir, "SKILL.md"), join(skillDir, ".SKILL.md"));
+
+    const defaultResult = discoverSkills({ customDirs: [root], scanDefaultDirs: false });
+    expect(defaultResult.skills).toHaveLength(0);
+
+    const withDisabled = discoverSkills({
+      customDirs: [root],
+      scanDefaultDirs: false,
+      includeDisabled: true,
+    });
+    expect(withDisabled.skills).toHaveLength(1);
+    expect(withDisabled.skills[0]?.disabled).toBe(true);
   });
 });
 

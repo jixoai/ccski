@@ -1,7 +1,10 @@
 import type { SkillRegistryOptions } from "../core/registry.js";
 import type { ArgumentsCamelCase } from "yargs";
 
-export function buildRegistryOptions(argv: ArgumentsCamelCase): SkillRegistryOptions {
+export function buildRegistryOptions(
+  argv: ArgumentsCamelCase,
+  extras: Partial<SkillRegistryOptions> = {}
+): SkillRegistryOptions {
   const options: SkillRegistryOptions = {};
 
   if (Array.isArray(argv.skillDir)) {
@@ -24,5 +27,5 @@ export function buildRegistryOptions(argv: ArgumentsCamelCase): SkillRegistryOpt
     options.pluginsRoot = argv.pluginsRoot;
   }
 
-  return options;
+  return { ...options, ...extras };
 }

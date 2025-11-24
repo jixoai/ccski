@@ -223,4 +223,99 @@ Important:
 
 ```
 
-还有我看到 universal-skills 支持`install`命令
+还有我看到 universal-skills和openskills 都支持`install`命令。
+请你参考并实现。
+
+---
+
+我们不需要刻意做“快捷本地复制”，如果需要，也是通过`file://`协议去支持。还有，要支持子目录，比如我给你`https://github.com/anthropics/skills/tree/main/canvas-design`，那么这个目录下如果有`SKILL.md`文件，那么就作为一个skill来安装。如果这个目录下有`.claude-plugin`目录，那么就要读取`.claude-plugin/marketplace.json`文件，它会列出相应的skills。
+ 
+注意，claude code 官方已经有插件安装的能力：
+```
+claude plugin
+Usage: claude plugin [options] [command]
+
+Manage Claude Code plugins
+
+Options:
+  -h, --help                 Display help for command
+
+Commands:
+  validate <path>            Validate a plugin or marketplace manifest
+  marketplace                Manage Claude Code marketplaces
+  install|i <plugin>         Install a plugin from available marketplaces (use plugin@marketplace for
+                             specific marketplace)
+  uninstall|remove <plugin>  Uninstall an installed plugin
+  enable <plugin>            Enable a disabled plugin
+  disable <plugin>           Disable an enabled plugin
+  help [command]             display help for command
+```
+理论上我们是不用做install的，但是我仍然要你做install，主要的差异在于，我们并不是`plugin`，而是直接将skills安装到 user 或者 project，如果要插件化的管理，那么开发者直接用`claude plugin install`去做管理就行了。
+
+---
+
+install的时候，支持 `--override/--force` 来进行强制覆盖。
+对于git链接，使用`--depth=1`来做快速的下载安装到缓存目录，然后在走你本地安装的逻辑`ccski install file:///tmp/...`
+
+---
+
+进一步提升 install 命令的可靠性：
+```
+> bun src/cli.ts install https://github.com/anthropics/skills
+
+Install failed: No SKILL.md found in /var/folders/tn/y_b12zxs2dldn8thmfnpy9c80000gp/T/ccski-install-qxAIax
+ ELIFECYCLE  Command failed with exit code 1.
+```
+这异常不该发生！
+我明确说明，我们应该尝试这样几种情况：
+- `ccski install https://github.com/anthropics/skills/blob/main/.claude-plugin/marketplace.json`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=.claude-plugin/marketplace.json`
+  - 自动发现当前文件就是`marketplace.json`
+- `ccski install https://github.com/anthropics/skills/blob/main/.claude-plugin/`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=.claude-plugin/`
+  - 自动发现当前文件夹存在`marketplace.json`
+- `ccski install https://github.com/anthropics/skills/blob/main/`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills`
+  - 自动发现当前文件夹存在`.claude-plugin/marketplace.json`
+- `ccski install https://github.com/anthropics/skills/`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=.claude-plugin/marketplace.json`
+  - 自动发现当前文件夹存在`.claude-plugin/marketplace.json`
+- `ccski install https://github.com/anthropics/skills/blob/main/algorithmic-art/SKILL.md`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=algorithmic-art/SKILL.md`
+  - 自动发现当前文件就是`SKILL.md`
+- `ccski install https://github.com/anthropics/skills/blob/main/algorithmic-art/`
+  - 等价于`ccski install file:///tmp/{random}/anthropics/skills --use=algorithmic-art/`
+  - 自动发现当前文件夹存在`SKILL.md`
+
+
+请你提供完全的测试，覆盖我提到的几种情况。
+并且要加入“防呆”测试。
+
+---
+
+补充一下，默认情况下`ccski install`如果是在安装多个skills，那么需要明确指明要安装哪些技能：`ccski install <git-url> <skill-a> <skill-b>,<skill-c>/<skill-d>`支持多种name混合的写法
+
+或者可以通过`-i, --interactive`来开启交互模式。
+或者使用`-a, --all`来安装全部。
+
+也就是说，如果使用`ccski install <git-url>`，那么一旦发现存在多个技能，那么会打印可用的技能列表（参考`ccski search`的打印效果）。
+如果`ccski install <git-url> <skill-a> <skill-b>`这里等同于使用search进行搜索，如果存在不明确的skill-name，可能是用户打错了，那么需要提醒用户进行拼写纠正。确保输入正确的skill-name
+
+这些都是一些防呆设计。
+
+---
+
+现在渲染出来的效果非常差劲，是一种倒退，请对齐 list/search 的效果。
+请使用 Inquirer.js 来做交互。
+
+---
+
+我们还需要支持`ccski enable/disable <skill-name>` 的功能：
+1. 原理是：`disable`: 将 `SKILL.md` 重命名成 `.SKILL.md`，反之，就是`enable`
+2. 如果目录中，同时存在`SKILL.md`和`.SKILL.md`两个文件，那么无法`enable/disable`需要报告异常，不会工作，除非强制使用`--force/--override`来忽略异常，强制覆盖
+3. 在`ccski list`命令行中，新增可选参数：`--all`或者`--disabled`，可以列出被禁用的skill列表，默认显示成“红色”，并且有明确的禁用标志，方便NO_COLOR也能正确辨别(mcp不需要支持这个功能)
+4. `ccski enable/disable`同样支持`-i, --interactive`来开启交互模式。enable就列出所有被禁用的skills，disable就列出所有可用的skills，渲染方案也对齐 list/search 的效果。
+
+
+确保测试覆盖率达标，防呆体验达标、可读性达标！
+完成所有任务后，提交所有文件（包括CHAT.md）并 git push

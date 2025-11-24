@@ -11,6 +11,8 @@ export interface SkillMetadata {
   name: string;
   /** Skill description (from frontmatter) */
   description: string;
+  /** Whether the skill is disabled (.SKILL.md) */
+  disabled?: boolean;
   /** Location type */
   location: SkillLocation;
   /** Absolute path to skill directory */

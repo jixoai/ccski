@@ -37,6 +37,8 @@ export interface DiscoveryOptions {
   skipPlugins?: boolean;
   /** Whether to scan built-in directories (.agent/.claude). Defaults to true. */
   scanDefaultDirs?: boolean;
+  /** Include disabled skills (.SKILL.md) in results */
+  includeDisabled?: boolean;
 }
 
 /**
@@ -84,7 +86,8 @@ function collectSkillDirectories(
   root: string,
   recursive: boolean,
   diagnostics: DiscoveryDiagnostics,
-  accumulator: Set<string>
+  accumulator: Set<string>,
+  includeDisabled: boolean
 ): void {
   diagnostics.scannedDirectories.push(root);
 
@@ -112,13 +115,14 @@ function collectSkillDirectories(
 
     const skillDir = join(root, entry.name);
     const skillFilePath = join(skillDir, "SKILL.md");
+    const disabledFilePath = join(skillDir, ".SKILL.md");
 
-    if (existsSync(skillFilePath)) {
+    if (existsSync(skillFilePath) || (includeDisabled && existsSync(disabledFilePath))) {
       accumulator.add(skillDir);
     }
 
     if (recursive) {
-      collectSkillDirectories(skillDir, true, diagnostics, accumulator);
+      collectSkillDirectories(skillDir, true, diagnostics, accumulator, includeDisabled);
     }
   }
 }
@@ -127,6 +131,7 @@ interface ScanOptions {
   location?: SkillLocation;
   recursive?: boolean;
   diagnostics: DiscoveryDiagnostics;
+  includeDisabled?: boolean;
 }
 
 /**
@@ -134,37 +139,53 @@ interface ScanOptions {
  */
 export function scanSkillDirectory(
   dirPath: string,
-  { location, recursive = true, diagnostics }: ScanOptions
+  { location, recursive = true, diagnostics, includeDisabled = false }: ScanOptions
 ): SkillMetadata[] {
   const skills: SkillMetadata[] = [];
   const skillDirectories = new Set<string>();
 
-  collectSkillDirectories(dirPath, recursive, diagnostics, skillDirectories);
+  collectSkillDirectories(dirPath, recursive, diagnostics, skillDirectories, includeDisabled);
 
   for (const skillDir of skillDirectories) {
     const skillFilePath = join(skillDir, "SKILL.md");
+    const disabledFilePath = join(skillDir, ".SKILL.md");
+    const hasSkill = existsSync(skillFilePath);
+    const hasDisabled = includeDisabled && existsSync(disabledFilePath);
 
-    try {
-      const parsed = parseSkillFile(skillFilePath);
-      const resources = checkBundledResources(skillDir);
-      const skillLocation = location ?? determineLocation(skillDir);
+    if (hasSkill && hasDisabled) {
+      diagnostics.conflicts.push(`Both SKILL.md and .SKILL.md found in ${skillDir}.`);
+    }
 
-      skills.push({
-        name: parsed.frontmatter.name,
-        description: parsed.frontmatter.description,
-        location: skillLocation,
-        path: skillDir,
-        ...resources,
-      });
-    } catch (error) {
-      console.warn(
-        colors.yellow(
-          `Warning: Failed to parse ${skillFilePath}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-      diagnostics.warnings.push(
-        `Failed to parse ${skillFilePath}: ${error instanceof Error ? error.message : String(error)}`
-      );
+    const candidates: Array<{ path: string; disabled: boolean }> = [];
+    if (hasSkill) candidates.push({ path: skillFilePath, disabled: false });
+    if (hasDisabled) candidates.push({ path: disabledFilePath, disabled: true });
+
+    if (candidates.length === 0) continue;
+
+    for (const candidate of candidates) {
+      try {
+        const parsed = parseSkillFile(candidate.path);
+        const resources = checkBundledResources(skillDir);
+        const skillLocation = location ?? determineLocation(skillDir);
+
+        skills.push({
+          name: parsed.frontmatter.name,
+          description: parsed.frontmatter.description,
+          location: skillLocation,
+          path: skillDir,
+          disabled: candidate.disabled,
+          ...resources,
+        });
+      } catch (error) {
+        console.warn(
+          colors.yellow(
+            `Warning: Failed to parse ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
+        diagnostics.warnings.push(
+          `Failed to parse ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
   }
 
@@ -198,6 +219,7 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
     const skills = scanSkillDirectory(absoluteDir, {
       diagnostics,
       recursive: true,
+      includeDisabled: options.includeDisabled === true,
     });
 
     for (const skill of skills) {
@@ -222,7 +244,7 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
  * Load full skill content
  */
 export function loadSkill(metadata: SkillMetadata): Skill {
-  const skillFilePath = join(metadata.path, "SKILL.md");
+  const skillFilePath = join(metadata.path, metadata.disabled ? ".SKILL.md" : "SKILL.md");
   const parsed = parseSkillFile(skillFilePath);
 
   return {

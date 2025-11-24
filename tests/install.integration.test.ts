@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import inquirer from "inquirer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installCommand } from "../src/cli/commands/install.js";
@@ -145,6 +146,7 @@ describe("installCommand end-to-end", () => {
   it("requires selection when multiple skills and no flag", async () => {
     const repo = createRepoWithMarketplace();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await installCommand({
       source: `file://${repo}`,
@@ -157,7 +159,9 @@ describe("installCommand end-to-end", () => {
 
     expect(process.exitCode).toBe(1);
     expect(errorSpy.mock.calls.flat().join(" ")).toMatch(/Multiple skills found/);
+    expect(logSpy.mock.calls.flat().join(" ")).toMatch(/algorithmic-art/);
     errorSpy.mockRestore();
+    logSpy.mockRestore();
     process.exitCode = 0;
   });
 
@@ -197,4 +201,39 @@ describe("installCommand end-to-end", () => {
     errorSpy.mockRestore();
     process.exitCode = 0;
   });
+
+  it("respects interactive selection instead of installing all", async () => {
+    const repo = createRepoWithMarketplace();
+    const promptSpy = vi.spyOn(inquirer, "prompt").mockResolvedValue({ picked: ["canvas-design"] });
+    const originalStdinTTY = process.stdin.isTTY;
+    const originalStdoutTTY = process.stdout.isTTY;
+    setIsTTY(true);
+
+    await installCommand({
+      source: `file://${repo}`,
+      interactive: true,
+      global: false,
+      force: false,
+      override: false,
+      _: [`file://${repo}`],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(join(cwd, ".claude/skills"));
+    expect(installed).toEqual(["canvas-design"]);
+
+    promptSpy.mockRestore();
+    setIsTTY(originalStdinTTY ?? false, originalStdoutTTY ?? false);
+  });
 });
+
+function setIsTTY(stdinValue: boolean, stdoutValue?: boolean): void {
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: stdinValue,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: stdoutValue ?? stdinValue,
+    configurable: true,
+  });
+}

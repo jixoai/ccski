@@ -1,4 +1,5 @@
 import { createColors, isColorSupported } from "colorette";
+import stringWidth from "string-width";
 import { wrap } from "../word-wrap/index.js";
 
 let colorEnabled = isColorSupported && process.env.FORCE_COLOR !== "0";
@@ -48,17 +49,21 @@ export interface ListItem {
   title: string;
   description?: string;
   meta?: string;
+  badge?: string;
+  color?: (text: string) => string;
 }
 
 export function renderList(items: ListItem[]): string {
   if (items.length === 0) return "";
 
-  const titleWidth = Math.max(...items.map((item) => visibleLength(item.title)));
+  const titleWidth = Math.max(...items.map((item) => displayWidth(item.title)));
 
   return items
     .map((item) => {
       const title = padAnsi(item.title, titleWidth);
+      const coloredTitle = item.color ? item.color(title) : colors.blue(title);
       const meta = item.meta ? `  ${dim(item.meta)}` : "";
+      const badge = item.badge ? ` ${item.badge}` : "";
       const wrapWidth = Math.max(20, Math.min(process.stdout?.columns ?? 80, 120) - 4);
       const description = item.description
         ? "\n    " +
@@ -70,17 +75,18 @@ export function renderList(items: ListItem[]): string {
             cut: false,
           }).replace(/\n/g, "\n    ")
         : "";
-      return `- ${colors.blue(title)}${meta}${description}`;
+      return `- ${coloredTitle}${badge}${meta}${description}`;
     })
     .join("\n\n");
 }
 
 function padAnsi(value: string, width: number): string {
-  const length = visibleLength(value);
+  const length = displayWidth(value);
   if (length >= width) return value;
   return value + " ".repeat(width - length);
 }
 
-function visibleLength(value: string): number {
-  return value.replace(/\x1b\[[0-9;]*m/g, "").length;
+function displayWidth(value: string): number {
+  const stripped = value.replace(/\x1b\[[0-9;]*m/g, "");
+  return stringWidth(stripped);
 }

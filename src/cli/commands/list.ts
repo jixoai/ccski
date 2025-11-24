@@ -15,15 +15,25 @@ export interface ListArgs extends SkillRegistryOptions {
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
+  all?: boolean;
+  disabled?: boolean;
 }
 
 export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
 
-  const registry = new SkillRegistry(buildRegistryOptions(argv));
+  const includeDisabled = argv.all || argv.disabled;
+  const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
 
-  const skills = registry.getAll().sort((a, b) => a.name.localeCompare(b.name));
+  let skills = registry.getAll();
+  if (argv.disabled) {
+    skills = skills.filter((s) => s.disabled);
+  } else if (!argv.all) {
+    skills = skills.filter((s) => !s.disabled);
+  }
+
+  skills = skills.sort((a, b) => a.name.localeCompare(b.name));
 
   const format = argv.json ? "json" : (argv.format ?? "plain");
 
@@ -55,8 +65,12 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
       renderList(
         list.map((skill) => ({
           title: skill.name,
+          color: skill.disabled ? colors.red : undefined,
+          badge: skill.disabled ? colors.red("[disabled]") : undefined,
           meta:
-            location === "plugin" ? (skill.pluginInfo?.pluginName ?? dim(location)) : dim(location),
+            location === "plugin"
+              ? skill.pluginInfo?.pluginName ?? dim(location)
+              : dim(location),
           description: skill.description,
         }))
       )
@@ -64,9 +78,15 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   }
 
   if (sections.length === 0) {
-    console.log("No skills found.");
+    console.log(argv.disabled ? "No disabled skills found." : "No skills found.");
     return;
   }
 
-  console.log(`${colors.bold("Skills")} (${skills.length})\n` + sections.join("\n\n"));
+  const heading = argv.disabled
+    ? "Disabled skills"
+    : argv.all
+      ? "All skills"
+      : "Skills";
+
+  console.log(`${colors.bold(heading)} (${skills.length})\n` + sections.join("\n\n"));
 }
