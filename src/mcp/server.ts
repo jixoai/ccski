@@ -243,6 +243,9 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
 
 export function buildSkillDescription(registry: SkillRegistry): string {
   const skills = registry.getAll();
+  const diagnostics = registry.getDiagnostics();
+
+  const exampleCommands = skills.slice(0, 2).map((skill) => `  - command: "${skill.name}"`);
 
   const skillBlocks = skills
     .map((skill) => {
@@ -257,25 +260,36 @@ export function buildSkillDescription(registry: SkillRegistry): string {
     })
     .join("\n");
 
+  const discoveryLines = [
+    "- `<available_skills>` is generated from the skills discovered on this machine at runtime.",
+    "- Discovery scans project and user skill directories",
+  ];
+
+  if (diagnostics.pluginSources.length > 0) {
+    discoveryLines.push(`- Plugin skills loaded from: ${diagnostics.pluginSources.join(", ")}`);
+  }
+
+  const exampleSection =
+    exampleCommands.length > 0 ? ["- Examples:", ...exampleCommands].join("\n") : "";
+
   const instructions = `Execute a skill within the main conversation
 
 <skills_instructions>
 When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge.
 
+Source of truth:
+${discoveryLines.join("\n")}
+
 How to use skills:
-- Invoke skills using this tool with the skill name only (no arguments)
+- Invoke this tool with the skill name only (case-insensitive)
 - The skill's prompt will expand and provide detailed instructions on how to complete the task
-- Examples:
-  - command: "pdf" - invoke the pdf skill
-  - command: "xlsx" - invoke the xlsx skill
-  - command: "plugin:pdf" - invoke using fully qualified name
+${exampleSection}
 
 Important:
-- Only use skills listed in <available_skills> below
+- Only use skills listed in <available_skills> below (this list reflects what is actually installed)
 - Do not invoke a skill that is already running
 - Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
 </skills_instructions>`;
-
   const available = `<available_skills>\n${skillBlocks || "<skill>\n<name>none</name>\n<description>No skills discovered</description>\n<location>none</location>\n</skill>"}\n</available_skills>`;
 
   return `${instructions}\n\n${available}`;
