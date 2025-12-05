@@ -1,13 +1,19 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import debug from "debug";
 import type { InstalledPlugins, SkillMetadata } from "../types/index.js";
 import { InstalledPluginsSchema } from "../types/schemas.js";
 import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
-const PLUGINS_FILE = join(homedir(), ".claude/plugins/installed_plugins.json");
-const PLUGINS_ROOT = join(homedir(), ".claude/plugins");
+function defaultPluginsFile(userDir: string): string {
+  return join(userDir, ".claude/plugins/installed_plugins.json");
+}
+
+function defaultPluginsRoot(userDir: string): string {
+  return join(userDir, ".claude/plugins");
+}
 
 export interface PluginDiscoveryDiagnostics {
   scannedPlugins: string[];
@@ -17,6 +23,7 @@ export interface PluginDiscoveryDiagnostics {
 export interface PluginDiscoveryOptions {
   pluginsFile?: string;
   pluginsRoot?: string;
+  userDir?: string;
 }
 
 export interface PluginDiscoveryResult {
@@ -32,7 +39,7 @@ function resolveInstallPath(rawPath: string, pluginsRoot: string): string {
  * Parse installed_plugins.json
  */
 export function loadInstalledPlugins(
-  pluginsFile: string = PLUGINS_FILE,
+  pluginsFile: string,
   diagnostics?: PluginDiscoveryDiagnostics
 ): InstalledPlugins | null {
   if (!existsSync(pluginsFile)) {
@@ -102,42 +109,121 @@ function findSkillFiles(dir: string, diagnostics: PluginDiscoveryDiagnostics): s
  * Discover skills from installed plugins
  */
 export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): PluginDiscoveryResult {
+  const log = debug("ccski:plugins");
   const diagnostics: PluginDiscoveryDiagnostics = {
     scannedPlugins: [],
     warnings: [],
   };
 
-  const pluginsFile = options.pluginsFile ?? PLUGINS_FILE;
+  const userDir = options.userDir ? resolve(options.userDir) : homedir();
+
+  const pluginsFile = options.pluginsFile ?? defaultPluginsFile(userDir);
   diagnostics.scannedPlugins.push(pluginsFile);
 
+  const skills: SkillMetadata[] = [];
+  const seenPaths = new Set<string>();
+  const pluginsRoot = options.pluginsRoot ?? defaultPluginsRoot(userDir);
+  let missingOrEmpty = false;
+
   const plugins = loadInstalledPlugins(pluginsFile, diagnostics);
-  if (!plugins) {
-    return { skills: [], diagnostics };
+  log("plugins file=%s loaded=%s", pluginsFile, Boolean(plugins));
+
+  if (plugins) {
+    for (const [pluginKey, plugin] of Object.entries(plugins.plugins)) {
+      const [pluginName, marketplace] = pluginKey.split("@");
+
+      if (!pluginName || !marketplace) {
+        continue;
+      }
+
+      const installPath = resolveInstallPath(plugin.installPath, pluginsRoot);
+      const skillFiles = findSkillFiles(installPath, diagnostics);
+
+      if (!skillFiles.length) {
+        if (!existsSync(installPath)) {
+          diagnostics.warnings.push(`Plugin install path not found: ${installPath}`);
+          log("missing installPath: %s", installPath);
+        } else {
+          diagnostics.warnings.push(`No skills found in plugin install path: ${installPath}`);
+          log("empty installPath: %s", installPath);
+        }
+        missingOrEmpty = true;
+      }
+
+      diagnostics.scannedPlugins.push(installPath);
+      log("scanned manifest plugin=%s skills=%d", pluginName, skillFiles.length);
+
+      for (const skillFile of skillFiles) {
+        try {
+          const parsed = parseSkillFile(skillFile);
+          const skillDir = dirname(skillFile);
+          if (seenPaths.has(skillDir)) continue;
+
+          const skillName = parsed.frontmatter.name;
+          const namespaced = skillName.includes(":")
+            ? skillName
+            : pluginName === skillName
+              ? skillName
+              : `${pluginName}:${skillName}`;
+
+          skills.push({
+            name: namespaced,
+            description: parsed.frontmatter.description,
+            provider: "claude",
+            location: "plugin",
+            path: skillDir,
+            hasReferences: existsSync(join(skillDir, "references")),
+            hasScripts: existsSync(join(skillDir, "scripts")),
+            hasAssets: existsSync(join(skillDir, "assets")),
+            pluginInfo: {
+              pluginName,
+              marketplace,
+              version: plugin.version,
+            },
+          });
+          seenPaths.add(skillDir);
+        } catch (error) {
+          console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
+          diagnostics.warnings.push(
+            `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
   }
 
-  const skills: SkillMetadata[] = [];
-  const pluginsRoot = options.pluginsRoot ?? PLUGINS_ROOT;
+  // Fallback: scan <pluginsRoot>/skills when enabled via env and manifest missing/invalid/empty
+  const fallbackEnabled = process.env.CCSKI_CLAUDE_PLUGINS_FALLBACK === "true";
+  if (!fallbackEnabled) {
+    log("fallback scan skipped (CCSKI_CLAUDE_PLUGINS_FALLBACK!=true)");
+    return { skills, diagnostics };
+  }
 
-  for (const [pluginKey, plugin] of Object.entries(plugins.plugins)) {
-    const [pluginName, marketplace] = pluginKey.split("@");
-
-    if (!pluginName || !marketplace) {
-      continue;
-    }
-
-    const installPath = resolveInstallPath(plugin.installPath, pluginsRoot);
-    const skillFiles = findSkillFiles(installPath, diagnostics);
-
-    diagnostics.scannedPlugins.push(installPath);
+  if (!plugins || skills.length === 0 || missingOrEmpty) {
+    const fallbackRoot = join(pluginsRoot, "skills");
+    diagnostics.scannedPlugins.push(fallbackRoot);
+    log("running fallback scan at %s", fallbackRoot);
+    const skillFiles = findSkillFiles(fallbackRoot, diagnostics);
 
     for (const skillFile of skillFiles) {
       try {
         const parsed = parseSkillFile(skillFile);
         const skillDir = dirname(skillFile);
+        if (seenPaths.has(skillDir)) continue;
+
+        const rel = relative(fallbackRoot, skillDir).split(sep).filter(Boolean);
+        const pluginName = rel[0] ?? "local";
+        const skillName = parsed.frontmatter.name;
+        const namespaced = skillName.includes(":")
+          ? skillName
+          : pluginName === skillName
+            ? skillName
+            : `${pluginName}:${skillName}`;
 
         skills.push({
-          name: `${pluginName}:${parsed.frontmatter.name}`,
+          name: namespaced,
           description: parsed.frontmatter.description,
+          provider: "claude",
           location: "plugin",
           path: skillDir,
           hasReferences: existsSync(join(skillDir, "references")),
@@ -145,10 +231,12 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
           hasAssets: existsSync(join(skillDir, "assets")),
           pluginInfo: {
             pluginName,
-            marketplace,
-            version: plugin.version,
+            marketplace: "local",
+            version: "unknown",
           },
         });
+        seenPaths.add(skillDir);
+        log("fallback skill added %s (%s)", namespaced, skillDir);
       } catch (error) {
         console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
         diagnostics.warnings.push(

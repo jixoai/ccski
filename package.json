@@ -34,8 +34,11 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "debug": "^4.3.7"
+  },
   "devDependencies": {
+    "@types/debug": "^4.1.12",
     "@inquirer/prompts": "^7.3.1",
     "@inquirer/core": "^10.3.2",
     "@inquirer/figures": "^1.0.0",

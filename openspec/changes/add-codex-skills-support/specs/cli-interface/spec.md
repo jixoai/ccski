@@ -1,13 +1,19 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Source include/exclude filters and order
-- CLI commands `list`, `info`, `search`, `validate`, `mcp`, `install`, `enable`, and `disable` SHALL accept repeatable `--include` and `--exclude` options.
-- Each option value MAY contain comma-separated entries using syntax `auto|claude|codex|all|file` with optional `:<skillName>`; bare names default to `auto`. Group tokens MUST be supported: `@plugins` and `@plugins:<pluginName>` (Claude only). Wildcards `*`/`?` are allowed in skill names and plugin scopes. Tokens that target unsupported provider groups (e.g., `codex:@plugins`) MUST error with guidance. `file:<path>` and `--skill-dir` (alias) inject skills from arbitrary paths.
+- CLI commands `list`, `info`, `search`, `validate`, `mcp`, `install`, `enable`, and `disable` SHALL accept repeatable `--include` and `--exclude` options **together with** state flags `--disabled` and `--all`; any command offering include/exclude MUST also surface these state flags in help and honor them.
+- Each option value MAY contain comma-separated entries using syntax `auto|claude|codex|all|file` with optional `:<skillName>`. Bare names default to `auto`. Skill identifiers MUST also support plugin-qualified forms `@<pluginName>:<skillName>` and scope+plugin forms `<scope>@<pluginName>:<skillName>` (scope matches provider when present). Group tokens MUST be supported: `@plugins` and `@plugins:<pluginName>` (Claude only). Wildcards `*`/`?` are allowed in skill names and plugin scopes. Tokens that target unsupported provider groups (e.g., `codex:@plugins`) MUST error with guidance. `file:<path>` and `--skill-dir` (alias) inject skills from arbitrary paths.
 - Filtering order MUST be: state selection (`--all`/`--disabled`/default) → ordered includes (each token contributes; `auto` dedups only within that token) → path dedup (same path kept once) → exclude (final removal). Because includes are ordered, `--include=auto,codex:foo` yields the auto-chosen `foo` *plus* the explicit codex `foo` unless they point to the same path. Excluded skills MUST NOT reappear via state flags.
 #### Scenario: mixed include, exclude, and state
 - GIVEN skills from both providers and at least one disabled Claude plugin skill
 - WHEN running `ccski list --include=all --include=codex:foo --exclude=codex --exclude=claude:@plugins --disabled`
-- THEN output lists disabled Claude project/user skills and still includes `codex:foo` (unless the same path was excluded), while omitting other Codex and Claude plugin skills.
+- THEN output lists disabled Claude project/user skills and still includes `codex:foo` (unless the same path was excluded), while omitting other Codex and Claude plugin skills; `ccski info --all --include=@canvas-design:webapp-testing` behaves consistently and accepts the plugin-qualified token.
+
+### Requirement: `--all` expands include scope
+- For commands that expose the state flag (`list` today), passing `--all` SHALL also default the include set to `all` **only when** no `--include` value is provided, so duplicate sources (including plugins) are surfaced instead of being auto-deduped.
+#### Scenario: all without includes
+- WHEN running `ccski list --all` with both a user skill `pdf` and a plugin skill `pdf`
+- THEN both copies are listed because the implicit include becomes `all`.
 
 ### Requirement: Auto deduplication
 - In `auto` mode (within include handling), when multiple skills share the same name across providers, the CLI MUST deduplicate by latest directory mtime; if tied, fall back to location priority `project > user > plugin`. Dedup applies only when `auto` is present in include set; `all` preserves duplicates.
@@ -17,11 +23,11 @@
 - THEN only the Codex `pdf` appears.
 
 ### Requirement: Provider-aware naming and display
-- CLI commands MUST accept provider-prefixed names (`codex:foo`, `claude:foo`) to disambiguate lookups when multiple providers contain the same skill name.
-- Human-readable outputs MUST group results by provider then location, show provider badges (`[codex]`/`[claude]`), and show a `[disabled]` badge for disabled entries; group headers SHALL include counts. JSON outputs MUST include `provider` and `disabled` fields. Filters using group tokens (e.g., `claude:@plugins`) MUST be reflected in summaries (e.g., “Claude plugins (3)”).
+- CLI commands MUST accept provider-prefixed names (`codex:foo`, `claude:foo`) to disambiguate lookups when multiple providers contain the same skill name; they MUST also accept plugin-qualified ids (`claude:@canvas-design:webapp-testing`) and scope+plugin ids (`codex:@myplugin:foo`) wherever names are parsed.
+- Human-readable outputs MUST group results by provider then location, show provider badges (`[codex]`/`[claude]`), and show a `[disabled]` badge for disabled entries; group headers SHALL include counts. When rendering individual entries, the displayed skill-id MUST include the provider plus any plugin segment as `provider:@plugin:name` (colors optional) so users can copy/paste into `info`/`include`. JSON outputs MUST include `provider`, `disabled`, and `pluginInfo.pluginName` when present. Filters using group tokens (e.g., `claude:@plugins`) MUST be reflected in summaries (e.g., “Claude plugins (3)”).
 #### Scenario: info with provider prefix
-- WHEN running `ccski info codex:pdf`
-- THEN metadata reflects provider `codex` and resolves even if a Claude `pdf` also exists.
+- WHEN running `ccski info codex:@shop:pdf`
+- THEN metadata reflects provider `codex`, plugin `shop`, and resolves even if a Claude `pdf` also exists.
 
 ### Requirement: Search options
 - `ccski search` SHALL honor include/exclude/state filters and support `--limit` (default 10) to cap displayed matches. Query text is treated as today (substring/fuzzy); wildcards apply only in include/exclude tokens, not in the query text.
@@ -56,7 +62,14 @@
 - THEN validation fails citing the Codex length rule and the summary reflects the codex error count.
 
 ### Requirement: Option scoping and neutrality
-- Global options SHALL be limited to color/help/version. All discovery/registry/install/validate options MUST be declared per-command. Provider-neutral wording is required; provider-specific file/root options MUST be explicit (e.g., `--claude-plugins-file`, `--claude-plugins-root`) and no default option may imply a single provider.
+- Global options SHALL be limited to color/help/version **plus** locator options `--user-dir` and `--skill-dir` (repeatable). `--skill-dir` is an alias for `file:<path>` injection and defaults to scope `other` so discovered skills are named `other:<skillName>`; it MAY be overridden per entry via a query parameter (`--skill-dir=./custom?scope=docs`) to set the scope prefix. All other discovery/registry/install/validate options MUST be declared per-command. Provider-neutral wording is required; provider-specific file/root options MUST be explicit (e.g., `--claude-plugins-file`, `--claude-plugins-root`) and no default option may imply a single provider.
 #### Scenario: help output clarity
 - WHEN running `ccski list --help`
 - THEN help shows only options relevant to `list` (include/exclude, state, skill-dir, claude-plugins-file/root), and global color/help/version flags are documented separately.
+
+### Requirement: User directory override
+- CLI SHALL accept a global `--user-dir <path>` option (default: user's home directory) that overrides the base directory used for user-level skill roots and plugin defaults. All default user-scope paths (e.g., `~/.claude/skills`, `~/.codex/skills`, `~/.claude/plugins`) MUST be resolved relative to this directory when provided. Command-specific overrides (e.g., `--claude-plugins-root`) still take precedence when set. `--skill-dir` entries SHOULD also resolve relative segments against the current working directory unless absolute.
+#### Scenario: temporary home for tests
+- GIVEN `--user-dir=/tmp/fakehome` and no other path overrides
+- WHEN running `ccski list --scan-default-dirs`
+- THEN user roots are resolved under `/tmp/fakehome` (e.g., `/tmp/fakehome/.claude/skills`, `/tmp/fakehome/.codex/skills`) and skills there are discoverable.

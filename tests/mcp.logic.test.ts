@@ -22,9 +22,10 @@ describe("mcp helpers", () => {
     const dir = createSkillDir("alpha", "alpha description");
     const registry = new SkillRegistry({ customDirs: [dir], scanDefaultDirs: false, skipPlugins: true });
 
-    const desc = buildSkillDescription(registry);
+    // Default includes is 'auto', but for 'file' provider skills we need to include 'all' or specify 'file'
+    const desc = buildSkillDescription(registry, [{ provider: "all" }], [], "enabled");
     expect(desc).toContain("<available_skills>");
-    expect(desc).toContain("<name>alpha</name>");
+    expect(desc).toContain("<name>other:alpha</name>");
     expect(desc).toContain("<description>alpha description</description>");
     expect(desc).toContain("<location>global</location>");
   });

@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Codex compatibility validation
 - The validator SHALL provide a Codex mode that enforces: name length ≤100 characters, description length ≤500 characters, both fields single-line, and emits warnings for SKILL.md files or directories that are symlinks.

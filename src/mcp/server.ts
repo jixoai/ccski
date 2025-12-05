@@ -9,6 +9,9 @@ import { parse } from "node:url";
 import type { SkillRegistryOptions } from "../core/registry.js";
 import { SkillRegistry } from "../core/registry.js";
 import type { Skill } from "../types/skill.js";
+import { applyFilters, parseFilters, type ExcludeToken, type IncludeToken, type StateFilter } from "../utils/filters.js";
+import { resolveSkill } from "../utils/resolution.js";
+import { AmbiguousSkillNameError, SkillNotFoundError } from "../types/errors.js";
 
 export interface MCPServerOptions extends SkillRegistryOptions {
   autoRefresh?: boolean;
@@ -16,6 +19,9 @@ export interface MCPServerOptions extends SkillRegistryOptions {
   transport?: "stdio" | "sse" | "http";
   host?: string;
   port?: number;
+  include?: string[];
+  exclude?: string[];
+  state?: StateFilter;
 }
 
 /**
@@ -23,6 +29,11 @@ export interface MCPServerOptions extends SkillRegistryOptions {
  */
 export async function startMCPServer(options: MCPServerOptions = {}): Promise<void> {
   const registry = new SkillRegistry(options);
+  const { includes, excludes }: { includes: IncludeToken[]; excludes: ExcludeToken[] } = parseFilters(
+    options.include,
+    options.exclude
+  );
+  const state: StateFilter = options.state ?? (options.includeDisabled ? "all" : "enabled");
   const transportKind = options.transport ?? "stdio";
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 3000;
@@ -40,7 +51,7 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
       }
     );
 
-    const buildSkillToolDescription = (): string => buildSkillDescription(registry);
+    const buildSkillToolDescription = (): string => buildSkillDescription(registry, includes, excludes, state);
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
@@ -74,16 +85,22 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
       }
 
       try {
-        const skill = registry.load(skillName);
+        const filtered = applyFilters(registry.getAll(), includes, excludes, state);
+        const resolved = resolveSkill(filtered, skillName);
+        const full = registry.load(`${resolved.provider}:${resolved.name}`);
         return {
           content: [
             {
               type: "text",
-              text: formatSkillContent(skill),
+              text: formatSkillContent(full),
             },
           ],
         };
       } catch (error) {
+        if (error instanceof SkillNotFoundError || error instanceof AmbiguousSkillNameError) {
+          const suggestion = error.suggestions.length ? ` Try: ${error.suggestions.join(", ")}.` : "";
+          throw new Error(`${error.message}.${suggestion}`);
+        }
         if (error instanceof Error) {
           throw new Error(`Failed to load skill: ${error.message}`);
         }
@@ -240,24 +257,30 @@ export async function startMCPServer(options: MCPServerOptions = {}): Promise<vo
   });
 }
 
-export function buildSkillDescription(registry: SkillRegistry): string {
-  const skills = registry.getAll();
+export function buildSkillDescription(
+  registry: SkillRegistry,
+  includes: IncludeToken[] = [],
+  excludes: ExcludeToken[] = [],
+  state: StateFilter = "enabled"
+): string {
+  const skills = applyFilters(registry.getAll(), includes, excludes, state);
   const diagnostics = registry.getDiagnostics();
 
   const exampleCommands = skills.slice(0, 2).map((skill) => `  - command: "${skill.name}"`);
 
-  const skillBlocks = skills
-    .map((skill) => {
-      const location = skill.location === "user" ? "global" : skill.location;
-      return [
-        "<skill>",
-        `<name>${skill.name}</name>`,
-        `<description>${skill.description}</description>`,
-        `<location>${location}</location>`,
-        "</skill>",
-      ].join("\n");
-    })
-    .join("\n");
+    const skillBlocks = skills
+      .map((skill) => {
+        const location = skill.location === "user" ? "global" : skill.location;
+        return [
+          "<skill>",
+          `<name>${skill.name}</name>`,
+          `<description>${skill.description}</description>`,
+          `<provider>${skill.provider}</provider>`,
+          `<location>${location}</location>`,
+          "</skill>",
+        ].join("\n");
+      })
+      .join("\n");
 
   const discoveryLines = [
     "- `<available_skills>` is generated from the skills discovered on this machine at runtime.",
@@ -299,6 +322,7 @@ export function formatSkillContent(skill: Skill): string {
     `name: ${skill.name}`,
     `path: ${skill.path}`,
     `location: ${skill.location}`,
+    `provider: ${skill.provider}`,
     skill.pluginInfo
       ? `plugin: ${skill.pluginInfo.pluginName}@${skill.pluginInfo.marketplace}`
       : null,

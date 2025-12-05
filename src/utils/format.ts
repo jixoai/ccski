@@ -1,5 +1,6 @@
 import { createColors, isColorSupported } from "colorette";
 import stringWidth from "string-width";
+import type { SkillProvider } from "../types/skill.js";
 import { wrap } from "../word-wrap/index.js";
 
 let colorEnabled = isColorSupported && process.env.FORCE_COLOR !== "0";
@@ -55,6 +56,13 @@ export function info(text: string): string {
 
 export function heading(text: string): string {
   return tone.underline(tone.bold(tone.accent(text)));
+}
+
+export function providerBadge(provider: SkillProvider): string {
+  const label = `[${provider}]`;
+  if (provider === "claude") return tone.success(label);
+  if (provider === "codex") return tone.info(label);
+  return dim(label);
 }
 
 function escapeRegExp(value: string): string {

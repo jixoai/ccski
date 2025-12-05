@@ -2,24 +2,26 @@ import type { Dirent } from "node:fs";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { Skill, SkillLocation, SkillMetadata } from "../types/skill.js";
+import type { Skill, SkillLocation, SkillMetadata, SkillProvider } from "../types/skill.js";
 import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
-/**
- * Skill directories in priority order (highest to lowest)
- */
-export const SKILL_DIRECTORIES = [
-  ".agent/skills", // Project universal
-  ".claude/skills", // Project Claude Code
-  `${homedir()}/.agent/skills`, // Global universal
-  `${homedir()}/.claude/skills`, // Global Claude Code
-] as const;
+export function getDefaultSkillDirectories(userDir: string): ReadonlyArray<{ path: string; provider: SkillProvider }> {
+  return [
+    { path: ".agent/skills", provider: "claude" }, // Project universal
+    { path: ".claude/skills", provider: "claude" }, // Project Claude Code
+    { path: join(userDir, ".agent/skills"), provider: "claude" }, // User universal
+    { path: join(userDir, ".claude/skills"), provider: "claude" }, // User Claude Code
+    { path: ".codex/skills", provider: "codex" }, // Project Codex
+    { path: join(userDir, ".codex/skills"), provider: "codex" }, // User Codex
+  ];
+}
 
 export interface DiscoveryDiagnostics {
   scannedDirectories: string[];
   warnings: string[];
   conflicts: string[];
+  byProvider: Record<SkillProvider, number>;
 }
 
 export interface DiscoveryResult {
@@ -30,15 +32,24 @@ export interface DiscoveryResult {
 /**
  * Options for skill discovery
  */
+interface CustomDirScopeEntry {
+  path: string;
+  scope?: string;
+}
+
 export interface DiscoveryOptions {
   /** Additional custom directories to scan */
-  customDirs?: string[];
+  customDirs?: Array<string | CustomDirScopeEntry>;
+  /** Provider to tag custom directories with (defaults to "file") */
+  customProvider?: SkillProvider;
   /** Skip plugin skills */
   skipPlugins?: boolean;
   /** Whether to scan built-in directories (.agent/.claude). Defaults to true. */
   scanDefaultDirs?: boolean;
   /** Include disabled skills (.SKILL.md) in results */
   includeDisabled?: boolean;
+  /** Base directory used for user-level default roots; defaults to OS home */
+  userDir?: string;
 }
 
 /**
@@ -59,21 +70,23 @@ function checkBundledResources(skillDir: string): {
 /**
  * Determine skill location type based on directory path
  */
-function determineLocation(dirPath: string): SkillLocation {
+function determineLocation(dirPath: string, userDir: string): SkillLocation {
   const normalizedPath = resolve(dirPath);
   const cwd = process.cwd();
-  const home = homedir();
+  const home = userDir;
 
   if (
     normalizedPath.startsWith(join(cwd, ".agent")) ||
-    normalizedPath.startsWith(join(cwd, ".claude"))
+    normalizedPath.startsWith(join(cwd, ".claude")) ||
+    normalizedPath.startsWith(join(cwd, ".codex"))
   ) {
     return "project";
   }
 
   if (
     normalizedPath.startsWith(join(home, ".agent")) ||
-    normalizedPath.startsWith(join(home, ".claude"))
+    normalizedPath.startsWith(join(home, ".claude")) ||
+    normalizedPath.startsWith(join(home, ".codex"))
   ) {
     return "user";
   }
@@ -139,7 +152,10 @@ interface ScanOptions {
  */
 export function scanSkillDirectory(
   dirPath: string,
-  { location, recursive = true, diagnostics, includeDisabled = false }: ScanOptions
+  { location, recursive = true, diagnostics, includeDisabled = false }: ScanOptions,
+  provider: SkillProvider,
+  userDir: string = homedir(),
+  scope?: string
 ): SkillMetadata[] {
   const skills: SkillMetadata[] = [];
   const skillDirectories = new Set<string>();
@@ -165,17 +181,22 @@ export function scanSkillDirectory(
     for (const candidate of candidates) {
       try {
         const parsed = parseSkillFile(candidate.path);
+        const baseName = parsed.frontmatter.name;
+        const scopedName =
+          scope && !baseName.includes(":") ? `${scope}:${baseName}` : baseName;
         const resources = checkBundledResources(skillDir);
-        const skillLocation = location ?? determineLocation(skillDir);
+        const skillLocation = location ?? determineLocation(skillDir, userDir);
 
         skills.push({
-          name: parsed.frontmatter.name,
+          name: scopedName,
           description: parsed.frontmatter.description,
+          provider,
           location: skillLocation,
           path: skillDir,
           disabled: candidate.disabled,
           ...resources,
         });
+        diagnostics.byProvider[provider] = (diagnostics.byProvider[provider] ?? 0) + 1;
       } catch (error) {
         console.warn(
           colors.yellow(
@@ -200,42 +221,72 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
     scannedDirectories: [],
     warnings: [],
     conflicts: [],
+    byProvider: {
+      claude: 0,
+      codex: 0,
+      file: 0,
+    },
   };
 
-  const directories: string[] = [];
+  const userDir = options.userDir ? resolve(options.userDir) : homedir();
+
+  const directories: Array<{ path: string; provider: SkillProvider; scope?: string }> = [];
 
   if (options.customDirs?.length) {
-    directories.push(...options.customDirs);
-  }
-
-  if (options.scanDefaultDirs !== false) {
-    directories.push(...SKILL_DIRECTORIES);
-  }
-
-  const skillMap = new Map<string, SkillMetadata>();
-
-  for (const dir of directories) {
-    const absoluteDir = dir.startsWith("/") ? dir : resolve(process.cwd(), dir);
-    const skills = scanSkillDirectory(absoluteDir, {
-      diagnostics,
-      recursive: true,
-      includeDisabled: options.includeDisabled === true,
-    });
-
-    for (const skill of skills) {
-      if (!skillMap.has(skill.name)) {
-        skillMap.set(skill.name, skill);
+    for (const entry of options.customDirs) {
+      const provider = options.customProvider ?? "file";
+      if (typeof entry === "string") {
+        directories.push({
+          path: entry,
+          provider,
+          scope: provider === "file" ? "other" : undefined,
+        });
       } else {
-        const existing = skillMap.get(skill.name);
-        diagnostics.conflicts.push(
-          `Keeping ${existing?.path ?? "unknown"} and skipping ${skill.path} for skill '${skill.name}' (higher priority already loaded).`
-        );
+        directories.push({
+          path: entry.path,
+          provider,
+          scope: entry.scope ?? (provider === "file" ? "other" : undefined),
+        });
       }
     }
   }
 
+  if (options.scanDefaultDirs !== false) {
+    directories.push(...getDefaultSkillDirectories(userDir));
+  }
+
+  const skills: SkillMetadata[] = [];
+  const firstPathByName = new Map<string, string>();
+
+  for (const entry of directories) {
+    const { path: dir, provider, scope } = entry;
+    const absoluteDir = dir.startsWith("/") ? dir : resolve(process.cwd(), dir);
+    const skillsFromDir = scanSkillDirectory(
+      absoluteDir,
+      {
+        diagnostics,
+        recursive: true,
+        includeDisabled: options.includeDisabled === true,
+      },
+      provider,
+      userDir,
+      scope
+    );
+
+    for (const skill of skillsFromDir) {
+      if (firstPathByName.has(skill.name)) {
+        diagnostics.conflicts.push(
+          `Duplicate skill '${skill.name}' found at ${skill.path} (first seen at ${firstPathByName.get(skill.name)})`
+        );
+      } else {
+        firstPathByName.set(skill.name, skill.path);
+      }
+      skills.push(skill);
+    }
+  }
+
   return {
-    skills: Array.from(skillMap.values()),
+    skills,
     diagnostics,
   };
 }

@@ -114,10 +114,11 @@ describe("installCommand end-to-end", () => {
 
   it("installs all skills via marketplace from repo root", async () => {
     const repo = createRepoWithMarketplace();
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       all: true,
@@ -125,16 +126,17 @@ describe("installCommand end-to-end", () => {
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design"]);
   });
 
   it("resolves marketplace skills relative to plugin source directories", async () => {
     const repo = createRepoWithPluginScopedSkills();
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       all: true,
@@ -142,51 +144,54 @@ describe("installCommand end-to-end", () => {
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed).toEqual(["api-design-principles"]);
   });
 
   it("installs single skill from SKILL.md file path", async () => {
     const repo = createRepoWithMarketplace().replace(/\.git$/, "");
     const skillFile = join(repo, "algorithmic-art", "SKILL.md");
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${skillFile}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [],
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed).toEqual(["algorithmic-art"]);
   });
 
   it("installs skill from directory path", async () => {
     const repo = createRepoWithMarketplace().replace(/\.git$/, "");
     const skillDir = join(repo, "canvas-design");
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${skillDir}/`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [],
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed).toEqual(["canvas-design"]);
   });
 
   it("installs via marketplace.json path", async () => {
     const repo = createRepoWithMarketplace().replace(/\.git$/, "");
     const marketplacePath = join(repo, ".claude-plugin", "marketplace.json");
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${marketplacePath}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       all: true,
@@ -194,7 +199,7 @@ describe("installCommand end-to-end", () => {
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design"]);
   });
 
@@ -202,10 +207,11 @@ describe("installCommand end-to-end", () => {
     const repo = createRepoWithMarketplace();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [],
@@ -224,27 +230,29 @@ describe("installCommand end-to-end", () => {
 
   it("installs selected subset by name", async () => {
     const repo = createRepoWithMarketplace();
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [`file://${repo}`, "canvas"],
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed).toEqual(["canvas-design"]);
   });
 
   it("suggests on typo", async () => {
     const repo = createRepoWithMarketplace();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [`file://${repo}`, "algorthmic-art"],
@@ -265,18 +273,19 @@ describe("installCommand end-to-end", () => {
     const originalStdinTTY = process.stdin.isTTY;
     const originalStdoutTTY = process.stdout.isTTY;
     setIsTTY(true);
+    const targetDir = join(cwd, ".claude/skills");
 
     await installCommand({
       source: `file://${repo}`,
       interactive: true,
-      global: false,
+      outDir: [targetDir],
       force: false,
       override: false,
       _: [`file://${repo}`],
       $0: "ccski",
     } as any);
 
-    const installed = listInstalled(join(cwd, ".claude/skills"));
+    const installed = listInstalled(targetDir);
     expect(installed).toEqual(["canvas-design"]);
 
     setIsTTY(originalStdinTTY ?? false, originalStdoutTTY ?? false);

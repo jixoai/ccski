@@ -4,6 +4,8 @@
 - ccski today scans Claude-style roots (`.agent/.claude`, plugins) and exposes them via CLI + MCP.
 - Codex skills live under `.codex/skills` and `~/.codex/skills`; Codex validation requires stricter length and single-line constraints.
 - We need one filtering model that spans discovery, registry, CLI commands, and MCP tool output without duplicating logic.
+- Tests need to override the notion of "user home" to isolate fixtures; introduce a configurable `userDir` (CLI: `--user-dir`) that remaps all default user-level roots.
+- Plugin discovery must not silently drop skills when the manifest is stale/missing; fall back to scanning `<pluginsRoot>/skills` (userDir-aware) and keep plugin duplicates so filter choices like `--include=all` can show every copy.
 - **Reference**: see `openspec/changes/add-codex-skills-support/chat.md` for the authoritative conversation trail guiding this change.
 
 ## Approach
@@ -15,8 +17,8 @@
    - **Include (ordered)**: process include tokens in the order provided. Each token contributes candidates; `auto` performs dedup *within that token* (mtime → location priority). Later tokens can reintroduce a name chosen differently (e.g., `auto,codex:foo` yields both the auto-chosen `foo` and explicit `codex:foo`).
    - **Path dedup**: if the same physical path appears multiple times (e.g., due to overlapping tokens), keep one copy; different providers/paths coexist.
    - **Exclude**: remove candidates matching exclude filters; excludes are final.
-5) **Output UX**: human output shows badges for provider (`[claude]`/`[codex]`) and state (`[disabled]`), grouped by provider then location, with per-group counts and a total after filtering. JSON includes `provider` and `disabled` fields.
-6) **Option scoping**: global options limited to color/help/version. Discovery/control options (include/exclude, skill-dir, plugin manifests, target, etc.) become per-command with provider-neutral wording (e.g., `--claude-plugins-file`, `--claude-plugins-root`; no default “plugins” flag that implies Claude). A shared builder wires only the relevant options for each command.
+5) **Output UX**: human output shows badges for provider (`[claude]`/`[codex]`) and state (`[disabled]`), grouped by provider then location, with per-group counts and a total after filtering. Displayed skill-ids should be copy/paste-ready for all commands and include plugin provenance when applicable (`provider:@plugin:skill`). JSON includes `provider`, `disabled`, and `pluginInfo.pluginName` when present.
+6) **Option scoping**: global options limited to color/help/version plus locators (`--user-dir`, repeatable `--skill-dir`, default scope `other`, optional `?scope=` override). Discovery/control options (include/exclude, plugin manifests, target, etc.) become per-command with provider-neutral wording (e.g., `--claude-plugins-file`, `--claude-plugins-root`; no default “plugins” flag that implies Claude). A shared builder wires only the relevant options for each command; commands that expose include/exclude also expose `--all/--disabled`.
 7) **Install flow (destinations)**: retire `--target/--global`; introduce `--out-dir` (string[], repeatable) and `--out-scope` (enum list: `claude`, `claude:@project`, `claude:@user`, `codex`, `codex:@user`).
    - Resolution order: collect all `--out-dir` values first; then expand any `--out-scope` tokens into concrete paths and append. Mappings: `claude`/`claude:@project` → `./.claude/skills`; `claude:@user` → `~/.claude/skills`; `codex`/`codex:@user` → `~/.codex/skills`; `codex:@project` is invalid and must error. If after expansion no destinations remain, default auto applies: if only one standard root exists, use it; if multiple exist, interactive mode shows a destination checkbox (claude project, claude user, codex user) with missing roots dimmed and creatable on selection; non-interactive must error asking for explicit `--out-scope` or `--out-dir`.
    - Include/exclude (and group tokens) filter the *source selection list*; auto dedup is **not** applied during install. Interactive picker shows provider badge, destination list (from out-dir + expanded out-scope), and a command preview reflecting inferred paths. Missing destination paths MAY be created when selected and must be stated in the preview.
@@ -27,6 +29,7 @@
 ## UX specifics to address pain points
 - **Grouping & totals**: list/search output grouped by provider, then location, with per-group counts and global count after filters & state are applied.
 - **State visibility**: disabled skills always display `[disabled]` and are dimmed; enabled omit the badge; `--disabled` shows only disabled; `--all` shows both with badges.
+- **Plugin provenance**: when a skill originates from a plugin, render the skill-id with `@plugin` in the name and still show location meta (even if marketplace is “local” and the meta reads `user`). Ambiguity suggestions should use the same fully qualified id.
 - **Install interaction**: interactive picker should show provider badge, target root preview, and a “Command preview” with resolved `--target/--global` flags to reduce confusion.
 - **Name resolution prompts**: when include/exclude removes all matches for a requested name (info/toggle), surface suggestions that mention provider prefixes.
 

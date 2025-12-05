@@ -30,10 +30,12 @@ export class SkillNotFoundError extends CcskiError {
 export class AmbiguousSkillNameError extends CcskiError {
   constructor(
     public skillName: string,
-    public matches: string[]
+    public matches: string[],
+    suggestions: string[] = []
   ) {
     super(
-      `Skill name '${skillName}' is ambiguous. Multiple skills found: ${matches.join(", ")}`
+      `Skill name '${skillName}' is ambiguous. Multiple skills found: ${matches.join(", ")}`,
+      suggestions.length ? suggestions : matches
     );
     this.name = "AmbiguousSkillNameError";
   }

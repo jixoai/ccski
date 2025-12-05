@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ArgumentsCamelCase } from "yargs";
 import { parseSkillFile } from "../../core/parser.js";
@@ -17,10 +17,11 @@ import { parseGitUrl } from "../../utils/git-url-parser.js";
 import { rankStrings } from "../../utils/search.js";
 import { wrap } from "../../word-wrap/index.js";
 import { Choice, promptMultiSelect } from "../prompts/multiSelect.js";
+import { parseFilters } from "../../utils/filters.js";
+import { promptMultiSelect as promptMultiSelectTargets } from "../prompts/multiSelect.js";
 
 export interface InstallArgs {
   source: string;
-  global?: boolean;
   force?: boolean;
   override?: boolean;
   path?: string;
@@ -28,8 +29,14 @@ export interface InstallArgs {
   branch?: string;
   interactive?: boolean;
   all?: boolean;
+  disabled?: boolean;
   noColor?: boolean;
   color?: boolean;
+  include?: string[];
+  exclude?: string[];
+  outDir?: string[];
+  outScope?: string[];
+  userDir?: string;
 }
 
 function normalizeSourcePath(source: string): string {
@@ -83,9 +90,7 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
   if (argv.color) setColorEnabled(true);
 
   try {
-    const targetRoot = argv.global
-      ? join(process.env.HOME ?? "~", ".claude/skills")
-      : join(process.cwd(), ".claude/skills");
+    const destinations = await resolveDestinations(argv);
     const materialized = await materializeSource(argv.source, {
       ...(argv.mode ? { mode: argv.mode } : {}),
       ...(argv.branch ? { branch: argv.branch } : {}),
@@ -106,11 +111,15 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
     }
 
     const force = argv.force === true || argv.override === true;
-    const selection = await selectSkills(targets, argv, sourceLabel);
+    const filteredTargets = filterTargetsByIncludeExclude(targets, argv.include, argv.exclude);
+    const selection = await selectSkills(filteredTargets, argv, sourceLabel);
 
     const installed: string[] = [];
-    for (const entry of selection) {
-      installed.push(installSkillDir(entry.dir, targetRoot, force));
+    for (const dest of destinations) {
+      if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
+      for (const entry of selection) {
+        installed.push(installSkillDir(entry.dir, dest, force));
+      }
     }
 
     console.log(success(`Installed ${installed.length} skill(s):`));
@@ -410,6 +419,102 @@ function formatSkillListing(entries: SkillEntry[], label: string): string {
     `${heading(`Available skills from ${label}`)} (${entries.length})\n` +
     renderList(entries.map((e) => ({ title: e.name, description: e.description })))
   );
+}
+
+function filterTargetsByIncludeExclude(targets: string[], include?: string[], exclude?: string[]): string[] {
+  const annotated = targets.map((dir) => {
+    const parsed = parseSkillFile(join(dir, "SKILL.md"));
+    return { dir, name: parsed.frontmatter.name };
+  });
+
+  const { includes, excludes } = parseFilters(include, exclude);
+  const collected: string[] = [];
+
+  const matchName = (skillName: string, pattern?: string): boolean => {
+    if (!pattern) return true;
+    return skillName.toLowerCase().includes(pattern.toLowerCase());
+  };
+
+  if (includes.length === 0) {
+    collected.push(...annotated.map((a) => a.dir));
+  } else {
+    for (const token of includes) {
+      annotated.forEach((entry) => {
+        if (matchName(entry.name, token.namePattern)) collected.push(entry.dir);
+      });
+    }
+  }
+
+  const byPath = Array.from(new Set(collected));
+
+  if (!excludes || excludes.length === 0) return byPath;
+
+  const excludeSet = new Set<string>();
+  for (const token of excludes) {
+    annotated.forEach((entry) => {
+      if (matchName(entry.name, token.namePattern)) excludeSet.add(entry.dir);
+    });
+  }
+
+  return byPath.filter((p) => !excludeSet.has(p));
+}
+
+async function resolveDestinations(argv: ArgumentsCamelCase<InstallArgs>): Promise<string[]> {
+  const dests: string[] = [];
+  const userDir = argv.userDir ? resolve(argv.userDir) : homedir();
+  if (argv.outDir && argv.outDir.length) {
+    dests.push(...(argv.outDir as string[]).map((p) => resolve(p)));
+  }
+
+  const scopeMap: Record<string, string> = {
+    "claude": join(process.cwd(), ".claude/skills"),
+    "claude:@project": join(process.cwd(), ".claude/skills"),
+    "claude:@user": join(userDir, ".claude/skills"),
+    "codex": join(userDir, ".codex/skills"),
+    "codex:@user": join(userDir, ".codex/skills"),
+  };
+
+  if (argv.outScope) {
+    for (const scope of argv.outScope as string[]) {
+      if (scope === "codex:@project") {
+        throw new Error("codex:@project is not supported. Codex skills must be installed to user scope (codex or codex:@user).");
+      }
+      const mapped = scopeMap[scope];
+      if (!mapped) throw new Error(`Invalid out-scope: ${scope}. Valid values: ${Object.keys(scopeMap).join(", ")}`);
+      dests.push(mapped);
+    }
+  }
+
+  const unique = Array.from(new Set(dests));
+  if (unique.length > 0) return unique;
+
+  const defaults = [scopeMap["claude"], scopeMap["claude:@user"], scopeMap["codex"]].filter(Boolean) as string[];
+  const existing = defaults.filter((p) => existsSync(p));
+  if (existing.length === 1) return existing;
+
+  if (!argv.interactive) {
+    throw new Error("Multiple destination roots detected; specify --out-scope or --out-dir");
+  }
+
+  const choices = defaults.map((p) => {
+    const exists = existsSync(p);
+    return {
+      value: p,
+      label: exists ? p : `${p} (will create)` ,
+      description: exists ? "" : "Path missing; will create if selected",
+      checked: exists,
+    } satisfies Choice;
+  });
+
+  const picked = await promptMultiSelectTargets({
+    message: "Select destination roots",
+    choices,
+    defaultChecked: choices.some((c) => c.checked),
+    command: { base: "ccski install" },
+  });
+
+  if (!picked || picked.length === 0) throw new Error("No destination selected");
+  return Array.from(new Set(picked));
 }
 
 function formatChoiceLabel(entry: SkillEntry): string {

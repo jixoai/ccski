@@ -4,8 +4,11 @@ import type { ArgumentsCamelCase } from "yargs";
 import { dim, formatBytes, setColorEnabled, success } from "../../utils/format.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillRegistryOptions } from "../../core/registry.js";
-import { SkillNotFoundError } from "../../types/errors.js";
+import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
 import { buildRegistryOptions } from "../registry-options.js";
+import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { resolveSkill } from "../../utils/resolution.js";
+import { formatSkillLabel } from "../../utils/skill-id.js";
 
 export interface InfoArgs extends SkillRegistryOptions {
   name: string;
@@ -18,6 +21,10 @@ export interface InfoArgs extends SkillRegistryOptions {
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
+  include?: string[];
+  exclude?: string[];
+  all?: boolean;
+  disabled?: boolean;
 }
 
 export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<void> {
@@ -28,10 +35,17 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
     setColorEnabled(true);
   }
 
-  const registry = new SkillRegistry(buildRegistryOptions(argv));
+  const includeDisabled = Boolean(argv.all || argv.disabled);
+  const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
 
   try {
-    const skill = registry.load(argv.name);
+    const includeArgs = argv.include as string[] | undefined;
+    const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
+    const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
+    const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
+    const filtered = applyFilters(registry.getAll(), includes, excludes, state);
+    const resolved = resolveSkill(filtered, argv.name);
+    const skill = registry.load(`${resolved.provider}:${resolved.name}`);
     const skillFile = join(skill.path, "SKILL.md");
     const stats = statSync(skillFile);
 
@@ -41,9 +55,11 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
           {
             name: skill.name,
             description: skill.description,
+            provider: skill.provider,
             location: skill.location,
             path: skillFile,
             size: stats.size,
+            disabled: skill.disabled ?? false,
             hasReferences: skill.hasReferences,
             hasScripts: skill.hasScripts,
             hasAssets: skill.hasAssets,
@@ -57,9 +73,10 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
       return;
     }
 
-    console.log(`\n${skill.name}`);
+    console.log(`\n${formatSkillLabel(skill, { includeProvider: true })}`);
     console.log(skill.description);
     console.log(dim(`Location: ${skill.location}`));
+    console.log(dim(`Provider: ${skill.provider}`));
     console.log(dim(`Path: ${skillFile}`));
     console.log(dim(`Size: ${formatBytes(stats.size)}`));
     console.log(dim(`Has references: ${skill.hasReferences}`));
@@ -88,6 +105,14 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
       console.error(`Error: ${error.message}`);
       if (error.suggestions.length > 0) {
         console.error(success(`Did you mean: ${error.suggestions.join(", ")}`));
+      }
+      process.exitCode = 1;
+      return;
+    }
+    if (error instanceof AmbiguousSkillNameError) {
+      console.error(`Error: ${error.message}`);
+      if (error.suggestions.length > 0) {
+        console.error(success(`Try specifying: ${error.suggestions.join(", ")}`));
       }
       process.exitCode = 1;
       return;

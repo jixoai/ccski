@@ -6,10 +6,13 @@ import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillMetadata } from "../../types/skill.js";
 import { dim, error, heading, renderList, setColorEnabled, success, tone, warn } from "../../utils/format.js";
-import { rankStrings } from "../../utils/search.js";
 import { promptMultiSelect } from "../prompts/multiSelect.js";
 import { buildRegistryOptions } from "../registry-options.js";
 import { wrap } from "../../word-wrap/index.js";
+import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { resolveSelectors as resolveNamedSelectors } from "../../utils/resolution.js";
+import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
+import { skillAliases } from "../../utils/skill-id.js";
 
 export interface ToggleArgs extends SkillRegistryOptions {
   names?: string[];
@@ -19,6 +22,8 @@ export interface ToggleArgs extends SkillRegistryOptions {
   all?: boolean;
   noColor?: boolean;
   color?: boolean;
+  include?: string[];
+  exclude?: string[];
 }
 
 type Mode = "enable" | "disable";
@@ -36,7 +41,9 @@ async function toggleCommand(mode: Mode, argv: ArgumentsCamelCase<ToggleArgs>): 
   if (argv.color) setColorEnabled(true);
 
   const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled: true }));
-  const skills = registry.getAll();
+  const { includes, excludes } = parseFilters(argv.include as string[] | undefined, argv.exclude as string[] | undefined);
+  const state: StateFilter = "all";
+  const skills = applyFilters(registry.getAll(), includes, excludes, state);
 
   const candidates =
     mode === "disable" ? skills.filter((s) => !s.disabled) : skills.filter((s) => s.disabled);
@@ -92,6 +99,14 @@ async function toggleCommand(mode: Mode, argv: ArgumentsCamelCase<ToggleArgs>): 
       process.exitCode = 1;
       return;
     }
+    if (err instanceof SkillNotFoundError || err instanceof AmbiguousSkillNameError) {
+      console.error(error(err.message));
+      if (err.suggestions.length) {
+        console.error(success(`Try: ${err.suggestions.join(", ")}`));
+      }
+      process.exitCode = 1;
+      return;
+    }
     console.error(error(err instanceof Error ? err.message : String(err)));
     process.exitCode = 1;
   }
@@ -116,7 +131,7 @@ async function pickSkills(
   if (argv.all) return candidates;
 
   if (selectors.length > 0) {
-    return resolveSelectors(selectors, candidates);
+    return resolveNamedSelectors(candidates, selectors);
   }
 
   if (argv.interactive) {
@@ -141,7 +156,7 @@ async function pickSkills(
       throw new MultiSelectError("No skills selected.", listing);
     }
     const pickedSet = new Set(names.map((n) => n.toLowerCase()));
-    return candidates.filter((c) => pickedSet.has(c.name.toLowerCase()));
+    return candidates.filter((c) => skillAliases(c).some((alias) => pickedSet.has(alias)));
   }
 
   throw new MultiSelectError(
@@ -160,33 +175,6 @@ function parseNames(argv: ArgumentsCamelCase<ToggleArgs>): string[] {
     .flatMap((item) => item.split(/[\\/,]/))
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function resolveSelectors(selectors: string[], candidates: SkillMetadata[]): SkillMetadata[] {
-  const names = candidates.map((c) => c.name);
-  const picked: SkillMetadata[] = [];
-
-  for (const raw of selectors) {
-    const lower = raw.toLowerCase();
-    const exact = candidates.find((c) => c.name.toLowerCase() === lower);
-    if (exact) {
-      if (!picked.some((p) => p.name === exact.name)) picked.push(exact);
-      continue;
-    }
-
-    const partial = candidates.filter((c) => c.name.toLowerCase().includes(lower));
-    if (partial.length === 1) {
-      picked.push(partial[0]!);
-      continue;
-    }
-
-    const rankedIdx = rankStrings(names, raw);
-    const suggestions = (rankedIdx.length ? rankedIdx : names.map((_, idx) => idx)).slice(0, 3).map((i) => names[i]!);
-    const hint = suggestions.length ? ` Did you mean: ${suggestions.join(", ")}?` : "";
-    throw new Error(`Skill '${raw}' not found among candidates.${hint}`);
-  }
-
-  return picked;
 }
 
 function disableSkill(skill: SkillMetadata, force: boolean): void {

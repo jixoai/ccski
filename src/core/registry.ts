@@ -1,10 +1,11 @@
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../types/errors.js";
-import type { Skill, SkillLocation, SkillMetadata } from "../types/skill.js";
+import type { Skill, SkillMetadata, SkillProvider } from "../types/skill.js";
 import type { DiscoveryOptions } from "./discovery.js";
 import { discoverSkills, loadSkill } from "./discovery.js";
 import type { PluginDiscoveryOptions } from "./plugins.js";
 import { discoverPluginSkills } from "./plugins.js";
 import { rankStrings } from "../utils/search.js";
+import { formatSkillId } from "../utils/skill-id.js";
 
 export type SkillRegistryOptions = DiscoveryOptions & PluginDiscoveryOptions;
 
@@ -13,18 +14,22 @@ interface SkillRegistryDiagnostics {
   pluginSources: string[];
   warnings: string[];
   conflicts: string[];
+  byProvider: Record<string, number>;
+  byLocation: Record<string, number>;
 }
 
 /**
  * Skill registry for managing discovered skills
  */
 export class SkillRegistry {
-  private skills: Map<string, SkillMetadata> = new Map();
+  private skills: SkillMetadata[] = [];
   private diagnostics: SkillRegistryDiagnostics = {
     directoriesScanned: [],
     pluginSources: [],
     warnings: [],
     conflicts: [],
+    byProvider: {},
+    byLocation: {},
   }; // collected during refresh
 
   constructor(private options: SkillRegistryOptions = {}) {
@@ -35,13 +40,15 @@ export class SkillRegistry {
    * Refresh the skill registry by rescanning directories
    */
   refresh(): void {
-    this.skills.clear();
+    this.skills = [];
 
     this.diagnostics = {
       directoriesScanned: [],
       pluginSources: [],
       warnings: [],
       conflicts: [],
+      byProvider: {},
+      byLocation: {},
     };
 
     // Discover user/project skills first (higher priority)
@@ -52,10 +59,12 @@ export class SkillRegistry {
     this.diagnostics.conflicts.push(...discovered.diagnostics.conflicts);
 
     for (const skill of discovered.skills) {
-      this.skills.set(skill.name, skill);
+      this.skills.push(skill);
+      this.diagnostics.byProvider[skill.provider] = (this.diagnostics.byProvider[skill.provider] ?? 0) + 1;
+      this.diagnostics.byLocation[skill.location] = (this.diagnostics.byLocation[skill.location] ?? 0) + 1;
     }
 
-    // Discover plugin skills (lowest priority, only add if not already exists)
+    // Discover plugin skills (lowest priority; keep duplicates so filters can resolve)
     if (!this.options.skipPlugins) {
       const pluginOptions: PluginDiscoveryOptions = {};
       if (this.options.pluginsFile) {
@@ -64,6 +73,9 @@ export class SkillRegistry {
       if (this.options.pluginsRoot) {
         pluginOptions.pluginsRoot = this.options.pluginsRoot;
       }
+      if (this.options.userDir) {
+        pluginOptions.userDir = this.options.userDir;
+      }
 
       const pluginSkills = discoverPluginSkills(pluginOptions);
 
@@ -71,13 +83,17 @@ export class SkillRegistry {
       this.diagnostics.warnings.push(...pluginSkills.diagnostics.warnings);
 
       for (const skill of pluginSkills.skills) {
-        if (!this.skills.has(skill.name)) {
-          this.skills.set(skill.name, skill);
-        } else {
+        const hasNonPluginDuplicate = this.skills.some(
+          (existing) => existing.name.toLowerCase() === skill.name.toLowerCase() && existing.location !== "plugin"
+        );
+        if (hasNonPluginDuplicate) {
           this.diagnostics.conflicts.push(
-            `Skipping plugin skill ${skill.name} from ${skill.path} because a higher-priority skill is already loaded.`
+            `Duplicate skill ${skill.name} from plugin at ${skill.path}; keeping for filter-stage resolution.`
           );
         }
+        this.skills.push(skill);
+        this.diagnostics.byProvider[skill.provider] = (this.diagnostics.byProvider[skill.provider] ?? 0) + 1;
+        this.diagnostics.byLocation[skill.location] = (this.diagnostics.byLocation[skill.location] ?? 0) + 1;
       }
     }
   }
@@ -86,7 +102,7 @@ export class SkillRegistry {
    * Get all skills
    */
   getAll(): SkillMetadata[] {
-    return Array.from(this.skills.values());
+    return [...this.skills];
   }
 
   /**
@@ -95,43 +111,34 @@ export class SkillRegistry {
   find(name: string): SkillMetadata {
     const normalizedName = name.toLowerCase();
 
-    // Try exact match first (case-insensitive)
-    for (const skill of this.skills.values()) {
-      if (skill.name.toLowerCase() === normalizedName) {
-        return skill;
-      }
-    }
+    const [maybeProvider, rest] = normalizedName.includes(":")
+      ? ((): [string | undefined, string] => {
+          const parts = normalizedName.split(":");
+          if (parts.length > 1 && ["claude", "codex", "file"].includes(parts[0]!)) {
+            return [parts.shift(), parts.join(":")];
+          }
+          return [undefined, normalizedName];
+        })()
+      : [undefined, normalizedName];
 
-    // Try namespace match (plugin:skill)
-    if (name.includes(":")) {
-      throw new SkillNotFoundError(name, this.getSuggestions(name));
-    }
+    const targetProvider = maybeProvider as SkillProvider | undefined;
+    const targetName = rest;
 
-    // Try short name with priority resolution
-    const shortMatches = Array.from(this.skills.values()).filter((skill) => {
-      const shortName = skill.name.split(":").pop();
-      return shortName?.toLowerCase() === normalizedName;
+    const candidates = this.skills.filter((skill) => {
+      const skillName = skill.name.toLowerCase();
+      const shortName = skillName.split(":").pop();
+      const matchesName = skillName === targetName || shortName === targetName;
+      const matchesProvider = targetProvider ? skill.provider === targetProvider : true;
+      return matchesName && matchesProvider;
     });
 
-    if (shortMatches.length === 0) {
-      throw new SkillNotFoundError(name, this.getSuggestions(name));
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length > 1) {
+      const suggestions = candidates.map((s) => this.formatNameWithProvider(s));
+      throw new AmbiguousSkillNameError(name, candidates.map((s) => s.name), suggestions);
     }
 
-    const priority: SkillLocation[] = ["project", "user", "plugin"];
-
-    for (const tier of priority) {
-      const tierMatches = shortMatches.filter((skill) => skill.location === tier);
-
-      if (tierMatches.length === 1) {
-        return tierMatches[0]!;
-      }
-
-      if (tierMatches.length > 1) {
-        throw new AmbiguousSkillNameError(name, tierMatches.map((s) => s.name));
-      }
-    }
-
-    throw new SkillNotFoundError(name, this.getSuggestions(name));
+    throw new SkillNotFoundError(name, this.getSuggestions(name, targetProvider));
   }
 
   /**
@@ -157,10 +164,16 @@ export class SkillRegistry {
   /**
    * Get suggestions for similar skill names (fuzzy matching)
    */
-  private getSuggestions(query: string, limit: number = 3): string[] {
-    const names = Array.from(this.skills.keys());
-    const ranked = rankStrings(names, query);
-    return ranked.slice(0, limit).map((index) => names[index]!);
+  private getSuggestions(query: string, provider?: SkillProvider, limit: number = 3): string[] {
+    const pool = this.skills
+      .filter((s) => (provider ? s.provider === provider : true))
+      .map((s) => this.formatNameWithProvider(s));
+    const ranked = rankStrings(pool, query);
+    return ranked.slice(0, limit).map((index) => pool[index]!);
+  }
+
+  private formatNameWithProvider(skill: SkillMetadata): string {
+    return formatSkillId(skill);
   }
 
   /**
@@ -169,24 +182,20 @@ export class SkillRegistry {
   getDiagnostics(): {
     totalSkills: number;
     byLocation: Record<string, number>;
+    byProvider: Record<string, number>;
     directoriesScanned: string[];
     pluginSources: string[];
     warnings: string[];
     conflicts: string[];
   } {
-    const byLocation: Record<string, number> = {};
-
-    for (const skill of this.skills.values()) {
-      byLocation[skill.location] = (byLocation[skill.location] ?? 0) + 1;
-    }
-
     return {
-      totalSkills: this.skills.size,
-      byLocation,
-      directoriesScanned: this.diagnostics.directoriesScanned,
-      pluginSources: this.diagnostics.pluginSources,
-      warnings: this.diagnostics.warnings,
-      conflicts: this.diagnostics.conflicts,
+      totalSkills: this.skills.length,
+      byLocation: { ...this.diagnostics.byLocation },
+      byProvider: { ...this.diagnostics.byProvider },
+      directoriesScanned: [...this.diagnostics.directoriesScanned],
+      pluginSources: [...this.diagnostics.pluginSources],
+      warnings: [...this.diagnostics.warnings],
+      conflicts: [...this.diagnostics.conflicts],
     };
   }
 }

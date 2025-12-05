@@ -1,9 +1,12 @@
 import type { ArgumentsCamelCase } from "yargs";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
-import { colors, highlight, renderList, setColorEnabled } from "../../utils/format.js";
+import { colors, highlight, type ListItem, renderList, setColorEnabled, tone } from "../../utils/format.js";
 import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
 import { buildRegistryOptions } from "../registry-options.js";
+import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { resolveSkill } from "../../utils/resolution.js";
+import { formatSkillLabel } from "../../utils/skill-id.js";
 
 export interface SearchArgs extends SkillRegistryOptions {
   query: string;
@@ -17,6 +20,11 @@ export interface SearchArgs extends SkillRegistryOptions {
   noColor?: boolean;
   color?: boolean;
   format?: "plain" | "json";
+  include?: string[];
+  exclude?: string[];
+  limit?: number;
+  all?: boolean;
+  disabled?: boolean;
 }
 
 export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promise<void> {
@@ -27,9 +35,13 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
     setColorEnabled(true);
   }
 
-  const registry = new SkillRegistry(buildRegistryOptions(argv));
-
-  const skills = registry.getAll();
+  const includeDisabled = Boolean(argv.all || argv.disabled);
+  const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
+  const includeArgs = argv.include as string[] | undefined;
+  const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
+  const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
+  const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
+  const skills = applyFilters(registry.getAll(), includes, excludes, state);
   const haystack = skills.map((skill) => `${skill.name} ${skill.description}`);
   const ranked = rankStrings(haystack, argv.query);
 
@@ -37,7 +49,8 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
 
   const filtered = argv.content
     ? picked.filter((skill) => {
-        const content = registry.load(skill.name).content;
+        const resolved = resolveSkill(skills, skill.name);
+        const content = registry.load(`${resolved.provider}:${resolved.name}`).content;
         return containsCaseInsensitive(content, argv.query);
       })
     : picked.filter((skill) =>
@@ -51,6 +64,8 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
       name: skill.name,
       description: skill.description,
       location: skill.location,
+      provider: skill.provider,
+      disabled: skill.disabled ?? false,
       path: skill.path,
     }));
     console.log(JSON.stringify(payload, null, 2));
@@ -62,21 +77,32 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
     return;
   }
 
-  console.log(`${colors.underline(colors.bold("Matches"))} (${filtered.length})\n`);
+  const limit = argv.limit ?? 10;
+  const limited = filtered.slice(0, limit);
+  console.log(`${colors.underline(colors.bold("Matches"))} (${limited.length}${filtered.length > limit ? ` of ${filtered.length}` : ""})\n`);
   console.log(
     renderList(
-      filtered.map((skill) => ({
-        title: highlight(skill.name, argv.query),
-        meta: `(${skill.location})`,
-        description: highlight(skill.description, argv.query),
-      }))
+      limited.map((skill) => {
+        const item: ListItem = {
+          title: highlight(formatSkillLabel(skill, { includeProvider: true }), argv.query),
+          color: (text: string) => text,
+          meta: `(${skill.location})`,
+          description: highlight(skill.description, argv.query),
+        };
+        if (skill.disabled) {
+          item.badge = tone.danger("[disabled]");
+          item.color = tone.danger;
+        }
+        return item;
+      })
     )
   );
 
   if (argv.content) {
     console.log();
     for (const skill of filtered.slice(0, 5)) {
-      const content = registry.load(skill.name).content;
+      const resolved = resolveSkill(skills, skill.name);
+      const content = registry.load(`${resolved.provider}:${resolved.name}`).content;
       const snippet = extractSnippet(content, argv.query, 120);
       if (snippet) {
         console.log(`${skill.name}: ${highlight(snippet, argv.query)}`);

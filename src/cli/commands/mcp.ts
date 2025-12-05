@@ -16,6 +16,8 @@ export interface McpArgs extends SkillRegistryOptions {
   transport?: "stdio" | "sse" | "http";
   port?: number;
   host?: string;
+  include?: string[];
+  exclude?: string[];
 }
 
 export async function mcpCommand(argv: ArgumentsCamelCase<McpArgs>): Promise<void> {
@@ -26,6 +28,8 @@ export async function mcpCommand(argv: ArgumentsCamelCase<McpArgs>): Promise<voi
     transport: argv.transport,
     port: argv.port,
     host: argv.host,
+    include: argv.include as string[] | undefined,
+    exclude: argv.exclude as string[] | undefined,
   } as MCPServerOptions;
 
   if (typeof argv.refreshInterval === "number") {

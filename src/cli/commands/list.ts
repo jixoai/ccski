@@ -2,8 +2,11 @@ import type { ArgumentsCamelCase } from "yargs";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillLocation } from "../../types/skill.js";
-import { colors, dim, renderList, setColorEnabled } from "../../utils/format.js";
+import { colors, dim, renderList, setColorEnabled, tone } from "../../utils/format.js";
 import { buildRegistryOptions } from "../registry-options.js";
+import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { formatSkillLabel } from "../../utils/skill-id.js";
+import { formatSkillId } from "../../utils/skill-id.js";
 
 export interface ListArgs extends SkillRegistryOptions {
   format?: "plain" | "json";
@@ -17,6 +20,8 @@ export interface ListArgs extends SkillRegistryOptions {
   color?: boolean;
   all?: boolean;
   disabled?: boolean;
+  include?: string[];
+  exclude?: string[];
 }
 
 export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<void> {
@@ -27,13 +32,11 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
 
   let skills = registry.getAll();
-  if (argv.disabled) {
-    skills = skills.filter((s) => s.disabled);
-  } else if (!argv.all) {
-    skills = skills.filter((s) => !s.disabled);
-  }
-
-  skills = skills.sort((a, b) => a.name.localeCompare(b.name));
+  const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
+  const includeArgs = argv.include as string[] | undefined;
+  const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
+  const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
+  skills = applyFilters(skills, includes, excludes, state).sort((a, b) => a.name.localeCompare(b.name));
 
   const format = argv.json ? "json" : (argv.format ?? "plain");
 
@@ -42,45 +45,43 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     return;
   }
 
-  const groups: Record<SkillLocation, typeof skills> = { project: [], user: [], plugin: [] };
-  skills.forEach((skill) => {
-    groups[skill.location]?.push(skill);
-  });
-
-  const labels: Record<SkillLocation, string> = {
-    project: "Project skills",
-    user: "User skills",
-    plugin: "Plugin skills",
-  };
-
   const sections: string[] = [];
-  const order: SkillLocation[] = ["project", "user", "plugin"];
+  const providers = ["claude", "codex", "file"] as const;
+  const locations: SkillLocation[] = ["project", "user", "plugin"];
 
-  for (const location of order) {
-    const list = groups[location];
-    if (!list.length) continue;
+  for (const provider of providers) {
+    const providerSkills = skills.filter((s) => s.provider === provider);
+    if (!providerSkills.length) continue;
+    sections.push(colors.underline(colors.bold(`${provider} (${providerSkills.length})`)));
 
-    sections.push(`${colors.underline(colors.bold(labels[location]))} (${list.length})`);
-    const listItems = list.map((skill) => {
-      const base = {
-        title: skill.name,
-        meta:
-          location === "plugin"
-            ? skill.pluginInfo?.pluginName ?? dim(location)
-            : dim(location),
-        ...(skill.description ? { description: skill.description } : {}),
-      };
-      if (skill.disabled) {
-        return {
-          ...base,
-          color: colors.red,
-          badge: colors.red("[disabled]"),
+    for (const location of locations) {
+      const list = providerSkills.filter((s) => s.location === location);
+      if (!list.length) continue;
+      sections.push(`${colors.bold(` ${location}`)} (${list.length})`);
+      const listItems = list.map((skill) => {
+        const coloredId = formatSkillLabel(skill, { includeProvider: true });
+        const base = {
+          title: coloredId,
+          color: (text: string) => text,
+          meta: dim(location),
+          ...(skill.description ? { description: skill.description } : {}),
         };
-      }
-      return base;
-    });
-
-    sections.push(renderList(listItems));
+        if (skill.disabled) {
+          const disabledId = formatSkillLabel(skill, {
+            includeProvider: true,
+            providerColor: colors.red,
+          });
+          return {
+            ...base,
+            title: disabledId,
+            color: (text: string) => text,
+            badge: tone.danger("[disabled]"),
+          };
+        }
+        return base;
+      });
+      sections.push(renderList(listItems));
+    }
   }
 
   if (sections.length === 0) {

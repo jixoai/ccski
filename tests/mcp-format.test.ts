@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildSkillDescription, formatSkillContent } from "../src/mcp/server.js";
-import type { Skill } from "../src/types/skill.js";
+import type { Skill, SkillProvider } from "../src/types/skill.js";
 import type { SkillRegistry } from "../src/core/registry.js";
 
 const baseSkill: Skill = {
   name: "demo",
   fullName: "demo",
   description: "Demo skill",
+  provider: "claude" as SkillProvider,
   location: "user",
   path: "/skills/demo",
   hasReferences: false,
@@ -46,9 +47,19 @@ describe("MCP formatting helpers", () => {
   it("builds a readable tool description", () => {
     const registry = {
       getAll: () => [baseSkill],
+      getDiagnostics: () => ({
+        totalSkills: 1,
+        byLocation: { user: 1 },
+        byProvider: { claude: 1 },
+        directoriesScanned: [],
+        pluginSources: [],
+        warnings: [],
+        conflicts: [],
+      }),
     } as unknown as SkillRegistry;
 
-    const description = buildSkillDescription(registry);
+    // Use 'all' include to bypass auto-dedup filter (auto requires specific providers)
+    const description = buildSkillDescription(registry, [{ provider: "all" }], [], "enabled");
     expect(description).toContain("<skills_instructions>");
     expect(description).toContain("<available_skills>");
     expect(description).toContain("<name>demo</name>");

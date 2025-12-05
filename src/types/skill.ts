@@ -2,6 +2,7 @@
  * Skill location types
  */
 export type SkillLocation = "user" | "project" | "plugin";
+export type SkillProvider = "claude" | "codex" | "file";
 
 /**
  * Core skill metadata interface
@@ -13,6 +14,8 @@ export interface SkillMetadata {
   description: string;
   /** Whether the skill is disabled (.SKILL.md) */
   disabled?: boolean;
+  /** Provider (claude | codex | file/custom) */
+  provider: SkillProvider;
   /** Location type */
   location: SkillLocation;
   /** Absolute path to skill directory */
