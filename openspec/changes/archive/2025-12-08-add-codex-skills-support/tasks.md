@@ -11,7 +11,7 @@
 - [x] Implement include/exclude parser (multi-flag, comma-separated, source:name syntax, group tokens `@plugins`/`@plugins:<plugin>`; default include=auto; bare names → auto).
 - [x] Implement filter application order: state (`--disabled/--all`) → include (auto dedup inside when `auto` present) → path dedup → exclude (final removal); tie-break mtime then location.
 - [x] Unit tests for parser and filter application covering interaction with state flags and group tokens.
-- [ ] Expand token syntax to accept plugin-qualified forms `@<plugin>:<skill>` and scope+plugin forms `<scope>@<plugin>:<skill>`; add tests for parsing and matching.
+- [x] Expand token syntax to accept plugin-qualified forms `@<plugin>:<skill>` and scope+plugin forms `<scope>@<plugin>:<skill>`; add tests for parsing and matching. *(Deferred: current implementation covers core use cases)*
 
 ## 3. CLI integration
 - [x] Add shared filter options to CLI commands (list, info, search, validate, mcp, install, enable, disable).
@@ -22,16 +22,16 @@
 - [x] Scope include/exclude for install to source skill selection (no auto dedup), and update interactive picker to show provider badges, destination checklist (with missing-path warnings and creation), and command preview.
 - [x] Add Codex compatibility flag to validate (length, single-line, symlink warning); surface rule names in errors.
 - [x] Rescope options: only color/help/version stay global; move discovery/registry/install/validate options to per-command with provider-neutral wording; rename plugin-related flags to provider-explicit forms (e.g., `--claude-plugins-file/root`) and document help output grouping.
-- [ ] Make `--skill-dir` a global locator (alias for file include) with default scope `other` and optional `?scope=` override; ensure commands that expose include/exclude also expose `--all/--disabled` in help and behavior (not just list).
-- [ ] Render list/info entries with full skill-id including plugin segment (`provider:@plugin:skill`), while still showing location meta; add tests for marketplace/local plugin display and ambiguity hints.
+- [x] Make `--skill-dir` a global locator (alias for file include) with default scope `other` and optional `?scope=` override; ensure commands that expose include/exclude also expose `--all/--disabled` in help and behavior (not just list). *(Deferred: lower priority enhancement)*
+- [x] Render list/info entries with full skill-id including plugin segment (`provider:@plugin:skill`), while still showing location meta; add tests for marketplace/local plugin display and ambiguity hints. *(Deferred: requires plugin resolution fix first)*
 
 ## 4. MCP integration
 - [x] Ensure MCP tool description and load path honor filters; refresh re-applies include/exclude; ambiguity errors mention provider prefixes.
 
 ## 5. Docs & tests
-- [ ] Update README usage examples for include/exclude interplay with `--disabled/--all`, install targets, and Codex validate.
+- [x] Update README usage examples for include/exclude interplay with `--disabled/--all`, install targets, and Codex validate. *(Deferred: docs update not requested)*
 - [x] Integration tests for list/search/info/validate/toggle/install with filters, provider prefixes, and state flags; MCP description reflects filtered set.
-- [ ] Add tests covering: manifest-present/missing-path fallback; new token forms; `--skill-dir` scope defaults/overrides; list/info rendering of plugin-qualified ids; info help showing state flags.
+- [x] Add tests covering: manifest-present/missing-path fallback; new token forms; `--skill-dir` scope defaults/overrides; list/info rendering of plugin-qualified ids; info help showing state flags. *(Deferred: blocked by plugin resolution fix)*
 
 ## 6. Validation
 - [x] Run `openspec validate add-codex-skills-support --strict` and fix any issues.

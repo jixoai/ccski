@@ -18,6 +18,7 @@ import {
 import figures from "@inquirer/figures";
 import { tone } from "../../utils/format.js";
 import { wrap } from "../../word-wrap/index.js";
+import { InteractiveCommandBuilder } from "./commandBuilder.js";
 
 // Shared interactive picker so install/enable/disable stay visually consistent.
 
@@ -50,10 +51,19 @@ export interface MultiSelectOptions {
   validate?: (selection: NormalizedChoice[]) => boolean | string | Promise<boolean | string>;
   shortcuts?: { all?: string; invert?: string };
   theme?: unknown;
+  /** Command builder for unified command preview */
+  commandBuilder?: InteractiveCommandBuilder;
+  /** Key to update in commandBuilder with selected values */
+  commandArgKey?: string;
+  /** Legacy command config (deprecated, use commandBuilder) */
   command?: {
     base: string;
     staticArgs?: string[];
     label?: string;
+    /** Prefix for each selected value (e.g., "--out-dir" renders as "--out-dir=value") */
+    argPrefix?: string;
+    /** Total number of choices - if selected.length equals this, use --all instead of listing */
+    totalChoices?: number;
   };
 }
 
@@ -65,8 +75,13 @@ const checkboxTheme = {
   },
   style: {
     disabledChoice: (text: string) => tone.muted(`- ${text}`),
-    renderSelectedChoices: (selectedChoices: Array<{ short: string }>) =>
-      selectedChoices.map((choice) => choice.short).join(", "),
+    renderSelectedChoices: (selectedChoices: Array<{ short: string }>) => {
+      const count = selectedChoices.length;
+      if (count === 0) return tone.muted("none");
+      if (count <= 3) return selectedChoices.map((c) => c.short).join(", ");
+      // Show count only for many selections
+      return `${count} selected`;
+    },
     description: (text: string) => tone.info(text),
     keysHelpTip: (keys: Array<[string, string]>) =>
       keys
@@ -87,7 +102,7 @@ function normalizeChoices(choices: Choice[], defaultChecked: boolean): Normalize
     return {
       value: choice.value,
       name: choice.label,
-      short: choice.label,
+      short: choice.value, // Use value (e.g., skill name) for completion summary, not full label
       checkedName: choice.label,
       ...(desc ? { description: desc } : {}),
       checked: choice.checked ?? defaultChecked,
@@ -97,15 +112,50 @@ function normalizeChoices(choices: Choice[], defaultChecked: boolean): Normalize
 }
 
 function buildPreview(
-  command: MultiSelectOptions["command"],
+  options: {
+    command?: MultiSelectOptions["command"];
+    commandBuilder?: InteractiveCommandBuilder;
+    commandArgKey?: string;
+  },
   selected: string[]
 ): string | undefined {
+  const { command, commandBuilder, commandArgKey } = options;
+
+  // Use commandBuilder if provided
+  if (commandBuilder) {
+    // Update the builder with current selection
+    if (commandArgKey) {
+      commandBuilder.updateArg(commandArgKey, selected);
+    }
+    return commandBuilder.renderPreview();
+  }
+
+  // Legacy command config
   if (!command) return undefined;
   const label = command.label ?? "Command";
   const base = command.base.trim();
   const staticArgs = command.staticArgs?.filter(Boolean) ?? [];
 
-  const renderedArgs = [...staticArgs, ...selected].map((arg) => tone.primary(arg)).join(" ");
+  // Determine how to render selected items
+  let formattedSelected: string[];
+
+  // If all choices are selected and totalChoices is set, use --all
+  if (command.totalChoices && selected.length === command.totalChoices && selected.length > 1) {
+    formattedSelected = ["--all"];
+  } else if (command.argPrefix) {
+    // Format selected values with argument prefix
+    formattedSelected = selected.map((arg) => `${command.argPrefix}=${arg}`);
+  } else {
+    // Truncate long lists: show up to 3, then "..."
+    const maxShow = 3;
+    if (selected.length <= maxShow) {
+      formattedSelected = selected;
+    } else {
+      formattedSelected = [...selected.slice(0, maxShow), `... (+${selected.length - maxShow} more)`];
+    }
+  }
+
+  const renderedArgs = [...staticArgs, ...formattedSelected].map((arg) => tone.primary(arg)).join(" ");
   const renderedBase = tone.bold(tone.accent(base));
   const suffix = renderedArgs.length ? ` ${renderedArgs}` : tone.muted(" <none>");
 
@@ -251,7 +301,7 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
 
   const message = theme.style.message(config.message, status);
   const preview = buildPreview(
-    command,
+    { command, commandBuilder: config.commandBuilder, commandArgKey: config.commandArgKey },
     items.filter(isChecked).map((c) => c.value)
   );
 
@@ -272,16 +322,17 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
 
   const helpLinesReserved = instructions === false ? 0 : 1;
   const errorLinesReserved = errorMsg ? 1 : 0;
-  const leadingLines = 0;
+  const leadingLines = 1; // Top padding line added via unshift
   const reservedLines =
+    leadingLines + // Top padding
     1 + // message
-    1 + // spacer
+    1 + // spacer between page and preview
     previewLineCount +
     descriptionLineCount +
     errorLinesReserved +
     helpLinesReserved;
   // Let Inquirer paginate by lines: give it all available lines (not item count).
-  const maxPageSize = Math.max(1, usableRows - reservedLines - leadingLines);
+  const maxPageSize = Math.max(1, usableRows - reservedLines);
   const basePageSize = pageSize ?? maxPageSize;
   const finalPageSize = Math.max(1, Math.min(basePageSize, maxPageSize));
 

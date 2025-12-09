@@ -170,4 +170,53 @@ describe("filters", () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.location).toBe("project");
   });
+
+  it("dedups namespaced skill names by base name in auto mode", () => {
+    const pluginPath = makeDir("plugin-namespaced");
+    const codexPath = makeDir("codex-bare");
+    // Make codex newer so auto picks it
+    touchPath(pluginPath, Date.now());
+    touchPath(codexPath, Date.now() + 1000);
+
+    const skills = [
+      // Plugin skill with namespaced name: "example-skills:webapp-testing"
+      skill("example-skills:webapp-testing", "claude", "plugin", pluginPath, {
+        pluginInfo: { pluginName: "example-skills", marketplace: "anthropic", version: "1.0.0" },
+      }),
+      // Codex skill with bare name: "webapp-testing"
+      skill("webapp-testing", "codex", "user", codexPath),
+    ];
+
+    const { includes, excludes } = parseFilters(undefined, undefined);
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    // Should dedup by base name "webapp-testing", keeping the newer codex one
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.provider).toBe("codex");
+    expect(filtered[0]?.name).toBe("webapp-testing");
+  });
+
+  it("dedups namespaced skill names preferring non-plugin over plugin", () => {
+    const pluginPath = makeDir("plugin-namespaced2");
+    const userPath = makeDir("user-bare");
+    const now = Date.now();
+    // Same mtime - should prefer non-plugin
+    touchPath(pluginPath, now);
+    touchPath(userPath, now);
+
+    const skills = [
+      skill("example-skills:canvas-design", "claude", "plugin", pluginPath, {
+        pluginInfo: { pluginName: "example-skills", marketplace: "anthropic", version: "1.0.0" },
+      }),
+      skill("canvas-design", "claude", "user", userPath),
+    ];
+
+    const { includes, excludes } = parseFilters(undefined, undefined);
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    // Should dedup by base name "canvas-design", preferring non-plugin
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.location).toBe("user");
+    expect(filtered[0]?.name).toBe("canvas-design");
+  });
 });

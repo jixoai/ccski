@@ -170,7 +170,11 @@ const installModule: CommandModule<unknown, InstallArgs> = {
       .option("all", { alias: "a", type: "boolean", default: false, description: "Install all discovered skills" })
       .option("include", { type: "array", string: true, description: "Filter skills to install" })
       .option("exclude", { type: "array", string: true, description: "Exclude skills from source" })
-      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills from source" }) as Argv<InstallArgs>,
+      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills from source" })
+      .option("dry-run", { type: "boolean", default: false, description: "Preview what would be installed without installing" })
+      .option("timeout", { type: "number", description: "Git clone timeout in milliseconds (default: 120000)" })
+      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt in interactive mode" })
+      .option("json", { type: "boolean", default: false, description: "Output results as JSON" }) as Argv<InstallArgs>,
   handler: installCommand,
 };
 

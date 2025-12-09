@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { SkillLocation, SkillMetadata, SkillProvider } from "../types/skill.js";
 
 export type GroupToken = "plugins";
@@ -140,20 +141,30 @@ function matchesPattern(value: string, pattern?: string): boolean {
   return globToRegex(pattern).test(value);
 }
 
+/**
+ * Extract the base skill name (the last segment after all colons).
+ * e.g., "example-skills:webapp-testing" -> "webapp-testing"
+ *       "webapp-testing" -> "webapp-testing"
+ */
+function getBaseSkillName(name: string): string {
+  return name.split(":").pop() ?? name;
+}
+
 function selectByToken(skills: SkillMetadata[], token: IncludeToken, includeDisabled: boolean): SkillMetadata[] {
   if (token.provider === "auto") {
-    // auto: dedup by name across all providers/locations
+    // auto: dedup by base skill name across all providers/locations
     const map = new Map<string, SkillMetadata>();
     for (const skill of skills) {
       if (!includeDisabled && skill.disabled) continue;
-      const existing = map.get(skill.name);
+      const baseName = getBaseSkillName(skill.name);
+      const existing = map.get(baseName);
       if (!existing) {
-        map.set(skill.name, skill);
+        map.set(baseName, skill);
         continue;
       }
       // pick newer by mtime then location priority
       const next = chooseByFreshness(existing, skill);
-      map.set(skill.name, next);
+      map.set(baseName, next);
     }
     return Array.from(map.values());
   }
@@ -252,3 +263,51 @@ export function applyFilters(
 
   return Array.from(byPath.values()).filter((s) => !excluded.has(s.path));
 }
+
+export interface DuplicateGroup {
+  baseName: string;
+  groupIndex: number;
+  primary: SkillMetadata;
+  duplicates: SkillMetadata[];
+}
+
+/**
+ * Compute duplicate groups for skills that share the same base name.
+ * Returns a map from skill path to its duplicate group info.
+ */
+export function computeDuplicateGroups(skills: SkillMetadata[]): Map<string, { groupIndex: number; isPrimary: boolean }> {
+  const byBaseName = new Map<string, SkillMetadata[]>();
+
+  for (const skill of skills) {
+    const baseName = getBaseSkillName(skill.name);
+    const group = byBaseName.get(baseName) ?? [];
+    group.push(skill);
+    byBaseName.set(baseName, group);
+  }
+
+  const result = new Map<string, { groupIndex: number; isPrimary: boolean }>();
+  let groupIndex = 1;
+
+  for (const [, group] of byBaseName) {
+    if (group.length <= 1) continue;
+
+    // Sort to find primary: prefer non-plugin, then newer mtime, then location priority
+    const sorted = [...group].sort((a, b) => {
+      const freshness = chooseByFreshness(a, b);
+      return freshness === a ? -1 : 1;
+    });
+
+    const primary = sorted[0]!;
+    result.set(primary.path, { groupIndex, isPrimary: true });
+
+    for (let i = 1; i < sorted.length; i++) {
+      result.set(sorted[i]!.path, { groupIndex, isPrimary: false });
+    }
+
+    groupIndex++;
+  }
+
+  return result;
+}
+
+export { getBaseSkillName };

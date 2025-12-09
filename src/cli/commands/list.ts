@@ -2,11 +2,10 @@ import type { ArgumentsCamelCase } from "yargs";
 import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import type { SkillLocation } from "../../types/skill.js";
-import { colors, dim, renderList, setColorEnabled, tone } from "../../utils/format.js";
+import { colors, dim, duplicateBadge, renderList, setColorEnabled, tone } from "../../utils/format.js";
 import { buildRegistryOptions } from "../registry-options.js";
-import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { applyFilters, computeDuplicateGroups, parseFilters, type StateFilter } from "../../utils/filters.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
-import { formatSkillId } from "../../utils/skill-id.js";
 
 export interface ListArgs extends SkillRegistryOptions {
   format?: "plain" | "json";
@@ -49,6 +48,9 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   const providers = ["claude", "codex", "file"] as const;
   const locations: SkillLocation[] = ["project", "user", "plugin"];
 
+  // Compute duplicate groups for --all mode
+  const duplicateGroups = computeDuplicateGroups(skills);
+
   for (const provider of providers) {
     const providerSkills = skills.filter((s) => s.provider === provider);
     if (!providerSkills.length) continue;
@@ -60,13 +62,23 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
       sections.push(`${colors.bold(` ${location}`)} (${list.length})`);
       const listItems = list.map((skill) => {
         const coloredId = formatSkillLabel(skill, { includeProvider: true });
+        const dupInfo = duplicateGroups.get(skill.path);
+        const badges: string[] = [];
+
+        // Add duplicate badge if applicable
+        if (dupInfo) {
+          badges.push(duplicateBadge(dupInfo.groupIndex, dupInfo.isPrimary));
+        }
+
         const base = {
           title: coloredId,
           color: (text: string) => text,
           meta: dim(location),
           ...(skill.description ? { description: skill.description } : {}),
         };
+
         if (skill.disabled) {
+          badges.push(tone.danger("[disabled]"));
           const disabledId = formatSkillLabel(skill, {
             includeProvider: true,
             providerColor: colors.red,
@@ -75,10 +87,14 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
             ...base,
             title: disabledId,
             color: (text: string) => text,
-            badge: tone.danger("[disabled]"),
+            badge: badges.join(" "),
           };
         }
-        return base;
+
+        return {
+          ...base,
+          badge: badges.length ? badges.join(" ") : undefined,
+        };
       });
       sections.push(renderList(listItems));
     }

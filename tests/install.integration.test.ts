@@ -278,6 +278,7 @@ describe("installCommand end-to-end", () => {
     await installCommand({
       source: `file://${repo}`,
       interactive: true,
+      yes: true, // Skip confirmation prompt in tests
       outDir: [targetDir],
       force: false,
       override: false,
@@ -302,3 +303,177 @@ function setIsTTY(stdinValue: boolean, stdoutValue?: boolean): void {
     configurable: true,
   });
 }
+
+describe("installCommand URL resolution scenarios", () => {
+  let cwd: string;
+  let repoPath: string;
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    cwd = mkdtempSync(join(tmpdir(), "ccski-install-url-"));
+    process.chdir(cwd);
+    process.exitCode = 0;
+
+    // Create a repo structure matching anthropics/skills
+    repoPath = mkdtempSync(join(tmpdir(), "ccski-url-repo-"));
+
+    // Create skills
+    createSkill(join(repoPath, "skills"), "algorithmic-art", "algo art");
+    createSkill(join(repoPath, "skills"), "canvas-design", "canvas design");
+    createSkill(join(repoPath, "skills"), "pdf", "pdf tools");
+
+    // Create .claude-plugin/marketplace.json
+    const pluginDir = join(repoPath, ".claude-plugin");
+    mkdirSync(pluginDir, { recursive: true });
+    const marketplace = {
+      name: "test-market",
+      owner: { name: "tester", email: "tester@example.com" },
+      plugins: [
+        {
+          name: "doc-skills",
+          description: "doc",
+          source: "./",
+          skills: ["./skills/pdf"],
+        },
+        {
+          name: "example-skills",
+          description: "example",
+          source: "./",
+          skills: ["./skills/algorithmic-art", "./skills/canvas-design"],
+        },
+      ],
+    };
+    writeFileSync(join(pluginDir, "marketplace.json"), JSON.stringify(marketplace, null, 2));
+
+    execSync("git init", { cwd: repoPath, stdio: "ignore" });
+    execSync("git add .", { cwd: repoPath, stdio: "ignore" });
+    execSync('git commit -m "init"', { cwd: repoPath, stdio: "ignore" });
+  });
+
+  afterEach(() => {
+    process.exitCode = 0;
+    process.chdir(originalCwd);
+  });
+
+  it("installs from explicit marketplace.json path", async () => {
+    const targetDir = join(cwd, "skills");
+    const marketplacePath = join(repoPath, ".claude-plugin", "marketplace.json");
+
+    await installCommand({
+      source: `file://${marketplacePath}`,
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      all: true,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design", "pdf"]);
+  });
+
+  it("installs from .claude-plugin directory path", async () => {
+    const targetDir = join(cwd, "skills");
+    const pluginDir = join(repoPath, ".claude-plugin");
+
+    await installCommand({
+      source: `file://${pluginDir}`,
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      all: true,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design", "pdf"]);
+  });
+
+  it("installs from repo root auto-detecting .claude-plugin/marketplace.json", async () => {
+    const targetDir = join(cwd, "skills");
+
+    await installCommand({
+      source: `file://${repoPath}`,
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      all: true,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design", "pdf"]);
+  });
+
+  it("installs single skill from explicit SKILL.md path", async () => {
+    const targetDir = join(cwd, "skills");
+    const skillFile = join(repoPath, "skills", "algorithmic-art", "SKILL.md");
+
+    await installCommand({
+      source: `file://${skillFile}`,
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed).toEqual(["algorithmic-art"]);
+  });
+
+  it("installs single skill from skill directory path", async () => {
+    const targetDir = join(cwd, "skills");
+    const skillDir = join(repoPath, "skills", "canvas-design");
+
+    await installCommand({
+      source: `file://${skillDir}`,
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed).toEqual(["canvas-design"]);
+  });
+
+  it("installs with --path option pointing to marketplace.json", async () => {
+    const targetDir = join(cwd, "skills");
+
+    await installCommand({
+      source: `file://${repoPath}`,
+      path: ".claude-plugin/marketplace.json",
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      all: true,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design", "pdf"]);
+  });
+
+  it("installs with --path option pointing to skill directory", async () => {
+    const targetDir = join(cwd, "skills");
+
+    await installCommand({
+      source: `file://${repoPath}`,
+      path: "skills/pdf",
+      outDir: [targetDir],
+      force: false,
+      override: false,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const installed = listInstalled(targetDir);
+    expect(installed).toEqual(["pdf"]);
+  });
+});

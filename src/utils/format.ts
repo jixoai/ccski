@@ -65,6 +65,29 @@ export function providerBadge(provider: SkillProvider): string {
   return dim(label);
 }
 
+const SUPERSCRIPT_DIGITS = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
+
+function toSuperscript(num: number): string {
+  return num
+    .toString()
+    .split("")
+    .map((d) => SUPERSCRIPT_DIGITS[parseInt(d, 10)] ?? d)
+    .join("");
+}
+
+/**
+ * Create a duplicate badge with superscript number.
+ * isPrimary: the chosen skill in auto mode (shows just the number)
+ * !isPrimary: the duplicate that was filtered out (shows [dup] + number)
+ */
+export function duplicateBadge(groupIndex: number, isPrimary: boolean): string {
+  const sup = toSuperscript(groupIndex);
+  if (isPrimary) {
+    return tone.accent(sup);
+  }
+  return tone.accent(`[dup]${sup}`);
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

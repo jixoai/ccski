@@ -21,16 +21,32 @@ describe("installSkillDir", () => {
     const src = createSkill("alpha", "alpha description");
     const destRoot = mkdtempSync(join(tmpdir(), "ccski-install-target-"));
 
-    const installedPath = installSkillDir(src, destRoot, false);
+    const result = installSkillDir(src, destRoot, false);
 
-    expect(installedPath).toBe(join(destRoot, "alpha"));
+    expect(result.path).toBe(join(destRoot, "alpha"));
+    expect(result.name).toBe("alpha");
+    expect(result.status).toBe("installed");
   });
 
-  it("throws when skill exists without force", () => {
+  it("returns skipped status when skill exists without force", () => {
     const src = createSkill("beta");
     const destRoot = mkdtempSync(join(tmpdir(), "ccski-install-target-"));
-    installSkillDir(src, destRoot, false);
+    const firstResult = installSkillDir(src, destRoot, false);
+    expect(firstResult.status).toBe("installed");
 
-    expect(() => installSkillDir(src, destRoot, false)).toThrow(/already exists/);
+    const secondResult = installSkillDir(src, destRoot, false);
+    expect(secondResult.status).toBe("skipped");
+    expect(secondResult.name).toBe("beta");
+  });
+
+  it("returns overwritten status when skill exists with force", () => {
+    const src = createSkill("gamma");
+    const destRoot = mkdtempSync(join(tmpdir(), "ccski-install-target-"));
+    const firstResult = installSkillDir(src, destRoot, false);
+    expect(firstResult.status).toBe("installed");
+
+    const secondResult = installSkillDir(src, destRoot, true);
+    expect(secondResult.status).toBe("overwritten");
+    expect(secondResult.name).toBe("gamma");
   });
 });
