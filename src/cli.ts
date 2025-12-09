@@ -192,6 +192,8 @@ const disableModule: CommandModule<unknown, ToggleArgs> = {
       .option("all", { alias: "a", type: "boolean", default: false, description: "Disable all available skills" })
       .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
+      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt" })
+      .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
   handler: disableCommand,
 };
@@ -210,6 +212,8 @@ const enableModule: CommandModule<unknown, ToggleArgs> = {
       .option("all", { alias: "a", type: "boolean", default: false, description: "Enable all disabled skills" })
       .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
+      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt" })
+      .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
   handler: enableCommand,
 };

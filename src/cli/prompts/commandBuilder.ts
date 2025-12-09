@@ -214,19 +214,8 @@ export class InteractiveCommandBuilder {
     console.log(`  ${tone.accent(this.buildFull())}`);
     console.log();
 
-    const readline = await import("node:readline");
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-
-    return new Promise((resolve) => {
-      rl.question(`${tone.warning("Proceed?")} [Y/n] `, (answer) => {
-        rl.close();
-        const normalized = answer.trim().toLowerCase();
-        resolve(normalized === "" || normalized === "y" || normalized === "yes");
-      });
-    });
+    const { confirm } = await import("@inquirer/prompts");
+    return confirm({ message: "Proceed?", default: true });
   }
 
   /** Clone this builder */

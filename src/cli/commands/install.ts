@@ -22,6 +22,7 @@ import { Choice, promptMultiSelect } from "../prompts/multiSelect.js";
 import { parseFilters } from "../../utils/filters.js";
 import { promptMultiSelect as promptMultiSelectTargets } from "../prompts/multiSelect.js";
 import { InteractiveCommandBuilder, skillsShortRender } from "../prompts/commandBuilder.js";
+import { formatSkillChoiceLabel } from "../../utils/skill-render.js";
 
 const GIT_CLONE_TIMEOUT_MS = 120_000; // 2 minutes
 const tempDirs: string[] = []; // Track temp dirs for cleanup
@@ -747,7 +748,7 @@ async function promptSelectSkills(
     choices: entries.map((e) => {
       return {
         value: e.name,
-        label: formatChoiceLabel(e),
+        label: formatSkillChoiceLabel(e),
         description: e.description,
         checked: true,
       } satisfies Choice;
@@ -979,22 +980,4 @@ async function resolveDestinations(
   }
 
   return Array.from(new Set(picked));
-}
-
-function formatChoiceLabel(entry: SkillEntry): string {
-  const wrapWidth = Math.max(24, Math.min(process.stdout?.columns ?? 80, 120) - 6);
-  const descriptionText = entry.description ?? "";
-  const wrapped = descriptionText
-    ? wrap(descriptionText, {
-        width: wrapWidth,
-        indent: "",
-        newline: "\n",
-        trim: true,
-        cut: false,
-      })
-    : "";
-  const description =
-    wrapped && wrapped.length > 0 ? "\n    " + wrapped.replace(/\n/g, "\n    ") : "";
-
-  return `${tone.primary(entry.name)}${description}`;
 }

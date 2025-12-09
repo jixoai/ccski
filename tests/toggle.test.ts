@@ -71,7 +71,7 @@ describe("enable/disable commands", () => {
     expect(existsSync(join(skillDir, ".SKILL.md"))).toBe(false);
   });
 
-  it("requires force when both SKILL.md and .SKILL.md exist", async () => {
+  it("skips when both SKILL.md and .SKILL.md exist without force", async () => {
     const skillDir = createSkill(cwd, "gamma");
     writeFileSync(join(skillDir, ".SKILL.md"), "stub");
 
@@ -83,19 +83,22 @@ describe("enable/disable commands", () => {
       $0: "ccski",
     } as any);
 
-    expect(process.exitCode).toBe(1);
-    // unchanged without force
+    // Skipped, not failed - files unchanged
+    expect(process.exitCode).toBe(0);
     expect(existsSync(join(skillDir, "SKILL.md"))).toBe(true);
     expect(existsSync(join(skillDir, ".SKILL.md"))).toBe(true);
+  });
 
-    process.exitCode = 0;
+  it("overwrites with force when both files exist", async () => {
+    const skillDir = createSkill(cwd, "gamma-force");
+    writeFileSync(join(skillDir, ".SKILL.md"), "stub");
 
     await disableCommand({
-      names: ["gamma"],
+      names: ["gamma-force"],
       skillDir: [cwd],
       scanDefaultDirs: false,
       force: true,
-      _: ["disable", "gamma"],
+      _: ["disable", "gamma-force"],
       $0: "ccski",
     } as any);
 
@@ -110,6 +113,7 @@ describe("enable/disable commands", () => {
 
     await disableCommand({
       interactive: true,
+      yes: true, // Skip confirmation prompt in tests
       skillDir: [cwd],
       scanDefaultDirs: false,
       _: ["disable"],
