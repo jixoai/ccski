@@ -2,7 +2,31 @@
 
 ## Project Overview
 
-**ccski** is a command-line tool that provides Claude Code's skills management capabilities for any AI coding agent. It supports both CLI and MCP (Model Context Protocol) interfaces to enable skill discovery, loading, and management.
+**ccski** is a CLI + MCP server for SKILL.md-based capabilities. It discovers, installs, toggles, and serves skills for humans (CLI) and agents (MCP/stdio/http/sse). MCP is the contract; CLI is ergonomics.
+
+## Architecture Philosophy
+
+- **Filesystem as truth**: Enabled = `SKILL.md`, disabled = `.SKILL.md`. No opaque registries.
+- **Deterministic agent surface**: MCP output and SKILL content are immutable by CLI niceties.
+- **Progressive disclosure**: Discover widely, load on demand; keep SKILL.md authoritative.
+- **Separation of stages**: Discovery → Materialization (git/file, cache) → Selection (filters, interactive) → Installation/Toggle → Serve.
+- **Automation-first UX**: Every interactive flow exposes a copyable one-shot command; `--json` everywhere; calm output, actionable errors.
+
+## UX Considerations
+
+- Safe defaults: never overwrite without `--force/--override`; toggle skips dual-file conflicts unless forced.
+- Predictable interactivity: shared picker layout/colors with live `Command:` preview; honors TTY checks.
+- Scriptable: stable JSON, `--no-color` respected when not TTY or explicit, summaries grouped by skill.
+- Actionable errors: similar-name suggestions, resolved directories/branch/path shown for git sources.
+- Minimal noise: terse progress for git clone; clear summaries for install/toggle.
+
+## Skill Lifecycle (Mental Model)
+
+1. **Discovery**: Prioritized roots (`.agent/.claude/.codex` project+user) plus `--skill-dir` scoped entries; optional plugin scan via `installed_plugins.json`.
+2. **Materialization**: Git/file; cached clones keyed by commit; supports tree/blob and marketplace.json resolution; timeouts and cleanup of temp dirs.
+3. **Selection**: Include/exclude grammar, state filter (enabled/disabled/all), short-name resolution with ambiguity checks; interactive multi-select.
+4. **Installation/Toggle**: Copy skill dirs to scopes (claude project/user, codex user); enable/disable via rename with conflict detection and force gate; dry-run summaries.
+5. **Serve**: MCP registry refreshes on interval (default 30s) unless `--no-refresh`; `skill` tool description lists discovered skills; supports stdio/http/sse transports.
 
 ## Core Concepts
 
@@ -34,15 +58,14 @@ Detailed instructions for the AI agent...
 
 ## Skill Discovery Directories
 
-Skills are discovered from multiple directories in priority order (first match wins):
+Skills are discovered from multiple directories:
 
-1. `$PWD/.agent/skills/` - Project-specific universal skills
-2. `$PWD/.claude/skills/` - Project-specific Claude Code skills
-3. `~/.agent/skills/` - Global universal skills
-4. `~/.claude/skills/` - Global Claude Code skills
-5. `~/.claude/plugins/marketplaces/*/skills/` - Plugin marketplace skills (only for list, read from installPath)
+- Project roots: `.agent/skills`, `.claude/skills`, `.codex/skills`
+- User roots: `~/.agent/skills`, `~/.claude/skills`, `~/.codex/skills`
+- Custom: `--skill-dir /path?scope=name` (defaults to scope `other` for custom provider)
+- Plugins: from `installed_plugins.json` (Claude) with optional fallback scan when `CCSKI_CLAUDE_PLUGINS_FALLBACK=true`
 
-**Priority Resolution:** If the same skill name exists in multiple directories, the one from the higher priority directory wins.
+**Resolution notes:** Discovery collects all; conflict handling happens later via filters/selection (auto mode prefers fresher and non-plugin copies).
 
 ## Plugin Marketplace Skills
 
@@ -178,8 +201,7 @@ The skill tool dynamically generates its description to include all available sk
   description: `Load a skill by name to get specialized instructions.
 
 Available skills:
-- user: 用户的全局技能，必读！
-- bun: Bun 文档增强技能
+- bun: Bun(js runtime) documents
 - example-skills:pdf: PDF manipulation toolkit
 ...
 
@@ -291,11 +313,11 @@ Resources provide an alternative way to access skills:
 ## Technical Architecture
 
 ### Technology Stack
-- **Language:** TypeScript
-- **Runtime:** Node.js (via tsx for development)
-- **Build Tool:** tsdown/rolldown for bundling
+- **Language:** TypeScript (strict)
+- **Runtime:** Node.js (>=20)
+- **Build Tool:** tsdown/rolldown
 - **Package Manager:** pnpm
-- **Testing:** vitest + jsdom
+- **Testing:** vitest (+jsdom), coverage via `vitest --coverage`
 
 ### Project Structure
 ```
@@ -320,30 +342,39 @@ ccski/
 ### Core Modules
 
 **`core/discovery.ts`**
-- Scan skill directories
-- Parse SKILL.md files
-- Build skill registry
-- Handle priority resolution
+- Recursively scan skill roots; include disabled optionally
+- Detect dual SKILL/.SKILL conflicts
+- Determine location (project/user/plugin/custom) and bundled resources
 
 **`core/parser.ts`**
-- Parse YAML frontmatter
-- Validate required fields
-- Extract skill metadata
+- Enforce UTF-8, YAML frontmatter with name/description
+- Normalize description whitespace; surface Parse/Validation errors with suggestions
 
 **`core/plugins.ts`**
-- Read installed_plugins.json
-- Discover plugin skills
-- Resolve plugin paths
+- Load `installed_plugins.json`; validate shape
+- Recursively find SKILL.md in plugin install paths; namespace as `<plugin>:<skill>`
+- Optional fallback scan at `<pluginsRoot>/skills` when env enables
 
-**`cli/index.ts`**
-- Parse CLI arguments
-- Route to command handlers
-- Format output
+**`core/registry.ts`**
+- Aggregate discovery + plugin skills; track diagnostics
+- Resolve skills (full/short/provider) with suggestions; load content respecting disabled
+
+**`utils/filters.ts`**
+- Include/exclude grammar (provider, @plugins, wildcards, file: path)
+- State filter (enabled/disabled/all); auto-dedup prefers fresher/non-plugin copies
+
+**`utils/resolution.ts`**
+- Alias-aware resolution; ambiguity and not-found errors with fuzzy hints
+
+**`cli/commands/*.ts`**
+- List/info/search/validate/install/toggle wired to registry + filters; `install` handles materialization, caching, marketplaces, destinations; toggles rename SKILL ↔ .SKILL with conflicts + force gate
+
+**`cli/prompts/commandBuilder.ts`**
+- Interactive command preview/confirmation; renders copyable one-shot command
 
 **`mcp/server.ts`**
-- Implement MCP protocol
-- Provide skill tool
-- Handle stdio communication
+- MCP transports (stdio/http/sse); dynamic `skill` tool description from filtered registry
+- Auto-refresh interval; formats skill content with header
 
 ## Quality Requirements
 
@@ -366,7 +397,7 @@ ccski/
 
 ### Build & Development
 - **MUST** pass type checking: `pnpm ts`
-- **MUST** pass linting: `pnpm lint`
+- **MUST** pass linting: `pnpm lint` (stubbed currently)
 - **MUST** pass tests: `pnpm test`
 - **MUST** format code: `pnpm fmt` (prettier + organize-imports + tailwindcss)
 

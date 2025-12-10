@@ -1,3 +1,24 @@
+## ADDED Requirements
+
+### Requirement: Parse marketplace.json structure
+- The tool SHALL support parsing `marketplace.json` files with the following structure:
+  - `name`: string (marketplace name)
+  - `plugins`: array of plugin objects, each containing:
+    - `name`: string (plugin name)
+    - `source`: string (relative path from marketplace root)
+    - `skills`: array of strings (relative paths to skill directories)
+- Invalid or malformed `marketplace.json` files MUST trigger a warning and fall back to recursive scanning.
+
+#### Scenario: valid marketplace.json parsing
+- GIVEN a `marketplace.json` with multiple plugins each having distinct skills arrays
+- WHEN the tool parses the file
+- THEN each plugin's skills are resolved correctly and only declared skills are discovered.
+
+#### Scenario: malformed marketplace.json
+- GIVEN a `marketplace.json` with invalid JSON or missing required fields
+- WHEN the tool attempts to parse it
+- THEN a warning is logged and recursive scanning is used as fallback.
+
 ## MODIFIED Requirements
 
 ### Requirement: Resolve install paths and scan recursively
@@ -24,22 +45,3 @@
 - GIVEN `example@claude` with an installPath containing `pdf/SKILL.md` whose frontmatter name is `pdf`
 - WHEN discovery runs
 - THEN the returned skill name is `example:pdf` and `pluginInfo.marketplace` equals `claude`.
-
-### Requirement: Parse marketplace.json structure
-- The tool SHALL support parsing `marketplace.json` files with the following structure:
-  - `name`: string (marketplace name)
-  - `plugins`: array of plugin objects, each containing:
-    - `name`: string (plugin name)
-    - `source`: string (relative path from marketplace root)
-    - `skills`: array of strings (relative paths to skill directories)
-- Invalid or malformed `marketplace.json` files MUST trigger a warning and fall back to recursive scanning.
-
-#### Scenario: valid marketplace.json parsing
-- GIVEN a `marketplace.json` with multiple plugins each having distinct skills arrays
-- WHEN the tool parses the file
-- THEN each plugin's skills are resolved correctly and only declared skills are discovered.
-
-#### Scenario: malformed marketplace.json
-- GIVEN a `marketplace.json` with invalid JSON or missing required fields
-- WHEN the tool attempts to parse it
-- THEN a warning is logged and recursive scanning is used as fallback.
