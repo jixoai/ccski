@@ -32,5 +32,4 @@ logs/
 # Temporary files
 *.tmp
 .cache/
-/CHAT.md
 .chat/
