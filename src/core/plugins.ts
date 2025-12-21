@@ -2,8 +2,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import debug from "debug";
-import type { InstalledPlugins, SkillMetadata } from "../types/index.js";
-import { InstalledPluginsSchema } from "../types/schemas.js";
+import type { InstalledPlugins, PluginEntry, SkillMetadata } from "../types/index.js";
+import { ClaudeSettingsSchema, InstalledPluginsSchema } from "../types/schemas.js";
 import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
@@ -15,6 +15,10 @@ function defaultPluginsRoot(userDir: string): string {
   return join(userDir, ".claude/plugins");
 }
 
+function defaultSettingsFile(userDir: string): string {
+  return join(userDir, ".claude/settings.json");
+}
+
 export interface PluginDiscoveryDiagnostics {
   scannedPlugins: string[];
   warnings: string[];
@@ -23,6 +27,7 @@ export interface PluginDiscoveryDiagnostics {
 export interface PluginDiscoveryOptions {
   pluginsFile?: string;
   pluginsRoot?: string;
+  settingsFile?: string;
   userDir?: string;
 }
 
@@ -33,6 +38,49 @@ export interface PluginDiscoveryResult {
 
 function resolveInstallPath(rawPath: string, pluginsRoot: string): string {
   return isAbsolute(rawPath) ? rawPath : join(pluginsRoot, rawPath);
+}
+
+function normalizePluginEntries(entry: PluginEntry | PluginEntry[]): PluginEntry[] {
+  return Array.isArray(entry) ? entry : [entry];
+}
+
+function loadClaudeSettings(
+  settingsFile: string,
+  diagnostics?: PluginDiscoveryDiagnostics
+): { enabledPlugins?: Record<string, boolean> } | null {
+  if (!existsSync(settingsFile)) {
+    diagnostics?.warnings.push(`Settings file not found at ${settingsFile}`);
+    return null;
+  }
+
+  try {
+    const content = readFileSync(settingsFile, "utf-8");
+    const json = JSON.parse(content);
+    const validation = ClaudeSettingsSchema.safeParse(json);
+
+    if (!validation.success) {
+      console.warn(colors.yellow(`Warning: Invalid settings.json format:`), validation.error);
+      diagnostics?.warnings.push("Invalid settings.json format");
+      return null;
+    }
+
+    return validation.data;
+  } catch (error) {
+    console.warn(colors.yellow(`Warning: Failed to load settings.json:`), error);
+    diagnostics?.warnings.push(
+      `Failed to load settings.json: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return null;
+  }
+}
+
+function resolveEnabledPlugins(settings: { enabledPlugins?: Record<string, boolean> } | null): Set<string> | null {
+  const enabledPlugins = settings?.enabledPlugins;
+  if (!enabledPlugins) return null;
+  const enabled = Object.entries(enabledPlugins)
+    .filter(([, isEnabled]) => isEnabled)
+    .map(([pluginKey]) => pluginKey);
+  return new Set(enabled);
 }
 
 /**
@@ -119,6 +167,7 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
 
   const pluginsFile = options.pluginsFile ?? defaultPluginsFile(userDir);
   diagnostics.scannedPlugins.push(pluginsFile);
+  const settingsFile = options.settingsFile ?? defaultSettingsFile(userDir);
 
   const skills: SkillMetadata[] = [];
   const seenPaths = new Set<string>();
@@ -126,67 +175,78 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
   let missingOrEmpty = false;
 
   const plugins = loadInstalledPlugins(pluginsFile, diagnostics);
+  const settings = loadClaudeSettings(settingsFile, diagnostics);
+  const enabledPlugins = resolveEnabledPlugins(settings);
   log("plugins file=%s loaded=%s", pluginsFile, Boolean(plugins));
+  log("settings file=%s enabledPlugins=%s", settingsFile, enabledPlugins?.size ?? "all");
 
   if (plugins) {
     for (const [pluginKey, plugin] of Object.entries(plugins.plugins)) {
+      if (enabledPlugins && !enabledPlugins.has(pluginKey)) {
+        log("plugin %s disabled by settings", pluginKey);
+        continue;
+      }
+
       const [pluginName, marketplace] = pluginKey.split("@");
 
       if (!pluginName || !marketplace) {
         continue;
       }
 
-      const installPath = resolveInstallPath(plugin.installPath, pluginsRoot);
-      const skillFiles = findSkillFiles(installPath, diagnostics);
+      const entries = normalizePluginEntries(plugin);
+      for (const entry of entries) {
+        const installPath = resolveInstallPath(entry.installPath, pluginsRoot);
+        const skillFiles = findSkillFiles(installPath, diagnostics);
 
-      if (!skillFiles.length) {
-        if (!existsSync(installPath)) {
-          diagnostics.warnings.push(`Plugin install path not found: ${installPath}`);
-          log("missing installPath: %s", installPath);
-        } else {
-          diagnostics.warnings.push(`No skills found in plugin install path: ${installPath}`);
-          log("empty installPath: %s", installPath);
+        if (!skillFiles.length) {
+          if (!existsSync(installPath)) {
+            diagnostics.warnings.push(`Plugin install path not found: ${installPath}`);
+            log("missing installPath: %s", installPath);
+          } else {
+            diagnostics.warnings.push(`No skills found in plugin install path: ${installPath}`);
+            log("empty installPath: %s", installPath);
+          }
+          missingOrEmpty = true;
         }
-        missingOrEmpty = true;
-      }
 
-      diagnostics.scannedPlugins.push(installPath);
-      log("scanned manifest plugin=%s skills=%d", pluginName, skillFiles.length);
+        diagnostics.scannedPlugins.push(installPath);
+        log("scanned manifest plugin=%s skills=%d", pluginName, skillFiles.length);
 
-      for (const skillFile of skillFiles) {
-        try {
-          const parsed = parseSkillFile(skillFile);
-          const skillDir = dirname(skillFile);
-          if (seenPaths.has(skillDir)) continue;
+        for (const skillFile of skillFiles) {
+          try {
+            const parsed = parseSkillFile(skillFile);
+            const skillDir = dirname(skillFile);
+            if (seenPaths.has(skillDir)) continue;
 
-          const skillName = parsed.frontmatter.name;
-          const namespaced = skillName.includes(":")
-            ? skillName
-            : pluginName === skillName
+            const skillName = parsed.frontmatter.name;
+            const namespaced = skillName.includes(":")
               ? skillName
-              : `${pluginName}:${skillName}`;
+              : pluginName === skillName
+                ? skillName
+                : `${pluginName}:${skillName}`;
 
-          skills.push({
-            name: namespaced,
-            description: parsed.frontmatter.description,
-            provider: "claude",
-            location: "plugin",
-            path: skillDir,
-            hasReferences: existsSync(join(skillDir, "references")),
-            hasScripts: existsSync(join(skillDir, "scripts")),
-            hasAssets: existsSync(join(skillDir, "assets")),
-            pluginInfo: {
-              pluginName,
-              marketplace,
-              version: plugin.version,
-            },
-          });
-          seenPaths.add(skillDir);
-        } catch (error) {
-          console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
-          diagnostics.warnings.push(
-            `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
-          );
+            skills.push({
+              name: namespaced,
+              description: parsed.frontmatter.description,
+              provider: "claude",
+              location: "plugin",
+              path: skillDir,
+              hasReferences: existsSync(join(skillDir, "references")),
+              hasScripts: existsSync(join(skillDir, "scripts")),
+              hasAssets: existsSync(join(skillDir, "assets")),
+              pluginInfo: {
+                pluginName,
+                marketplace,
+                version: entry.version,
+              },
+            });
+            seenPaths.add(skillDir);
+          } catch (error) {
+            console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
+            diagnostics.warnings.push(
+              `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
         }
       }
     }
@@ -196,6 +256,10 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
   const fallbackEnabled = process.env.CCSKI_CLAUDE_PLUGINS_FALLBACK === "true";
   if (!fallbackEnabled) {
     log("fallback scan skipped (CCSKI_CLAUDE_PLUGINS_FALLBACK!=true)");
+    return { skills, diagnostics };
+  }
+  if (enabledPlugins) {
+    log("fallback scan skipped (enabledPlugins present)");
     return { skills, diagnostics };
   }
 

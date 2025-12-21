@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { discoverSkills } from "../src/core/discovery.js";
+import { discoverPluginSkills } from "../src/core/plugins.js";
 import { SkillRegistry } from "../src/core/registry.js";
 import { applyFilters, parseFilters } from "../src/utils/filters.js";
 
@@ -203,5 +204,66 @@ describe("SkillRegistry", () => {
     const { includes, excludes } = parseFilters(["all"], undefined);
     const filtered = applyFilters(registry.getAll(), includes, excludes, "all").filter((s) => s.name === "example:skill");
     expect(filtered).toHaveLength(2);
+  });
+});
+
+describe("discoverPluginSkills", () => {
+  it("supports installed_plugins.json arrays and enabledPlugins filtering", () => {
+    const root = mkdtempSync(join(tmpdir(), "ccski-plugins-v2-"));
+
+    const enabledRoot = join(root, ".claude", "plugins", "cache", "marketplace-a", "example", "v1");
+    const disabledRoot = join(root, ".claude", "plugins", "cache", "marketplace-a", "blocked", "v1");
+    createSkill(join(enabledRoot, "skills"), "alpha", "alpha", "Example plugin skill");
+    createSkill(join(disabledRoot, "skills"), "beta", "beta", "Blocked plugin skill");
+
+    const pluginsFile = join(root, ".claude", "plugins", "installed_plugins.json");
+    mkdirSync(join(root, ".claude", "plugins"), { recursive: true });
+    writeFileSync(
+      pluginsFile,
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          "example@marketplace-a": [
+            {
+              scope: "user",
+              installPath: enabledRoot,
+              version: "v1",
+              installedAt: "2025-12-10T00:00:00Z",
+              lastUpdated: "2025-12-10T00:00:00Z",
+              gitCommitSha: "abc123",
+              isLocal: true,
+            },
+          ],
+          "blocked@marketplace-a": [
+            {
+              scope: "user",
+              installPath: disabledRoot,
+              version: "v1",
+              installedAt: "2025-12-10T00:00:00Z",
+              lastUpdated: "2025-12-10T00:00:00Z",
+              gitCommitSha: "def456",
+              isLocal: true,
+            },
+          ],
+        },
+      })
+    );
+
+    const settingsFile = join(root, ".claude", "settings.json");
+    writeFileSync(
+      settingsFile,
+      JSON.stringify({
+        enabledPlugins: {
+          "example@marketplace-a": true,
+          "blocked@marketplace-a": false,
+        },
+      })
+    );
+
+    const result = discoverPluginSkills({ userDir: root });
+    const names = result.skills.map((s) => s.name);
+
+    expect(names).toContain("example:alpha");
+    expect(names).not.toContain("blocked:beta");
   });
 });

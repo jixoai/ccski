@@ -63,6 +63,7 @@ export interface PluginEntry {
   installPath: string;
   gitCommitSha: string;
   isLocal: boolean;
+  scope?: string;
 }
 
 /**
@@ -70,5 +71,5 @@ export interface PluginEntry {
  */
 export interface InstalledPlugins {
   version: number;
-  plugins: Record<string, PluginEntry>;
+  plugins: Record<string, PluginEntry | PluginEntry[]>;
 }
