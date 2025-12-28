@@ -146,11 +146,15 @@ describe("SkillRegistry", () => {
       })
     );
 
+    const settingsFile = join(root, "settings.json");
+    writeFileSync(settingsFile, JSON.stringify({}));
+
     const registry = new SkillRegistry({
       customDirs: [userRoot],
       scanDefaultDirs: false,
       pluginsFile,
       pluginsRoot: root,
+      settingsFile,
     });
 
     // With multiple skills of the same base name, provider-prefix resolves correctly
@@ -191,11 +195,15 @@ describe("SkillRegistry", () => {
     const pluginSkillRoot = join(root, pluginInstallPath, "skills");
     createSkill(pluginSkillRoot, "skill", "skill", "Plugin copy");
 
+    const settingsFile = join(root, "settings.json");
+    writeFileSync(settingsFile, JSON.stringify({}));
+
     const registry = new SkillRegistry({
       customDirs: [userRoot],
       scanDefaultDirs: false,
       pluginsFile,
       pluginsRoot: root,
+      settingsFile,
     });
 
     const all = registry.getAll().filter((s) => s.name === "example:skill");

@@ -3,28 +3,18 @@ import { join } from "node:path";
 import type { ArgumentsCamelCase } from "yargs";
 import { dim, formatBytes, setColorEnabled, success } from "../../utils/format.js";
 import { SkillRegistry } from "../../core/registry.js";
-import type { SkillRegistryOptions } from "../../core/registry.js";
+import type { InfoOptions } from "../../api/types.js";
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
 import { buildRegistryOptions } from "../registry-options.js";
 import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
 import { resolveSkill } from "../../utils/resolution.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
+import { getSkillInfo } from "../../api/info.js";
 
-export interface InfoArgs extends SkillRegistryOptions {
-  name: string;
-  full?: boolean;
-  noPlugins?: boolean;
-  skillDir?: string[];
-  scanDefaultDirs?: boolean;
-  pluginsFile?: string;
-  pluginsRoot?: string;
+export interface InfoArgs extends InfoOptions {
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
-  include?: string[];
-  exclude?: string[];
-  all?: boolean;
-  disabled?: boolean;
 }
 
 export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<void> {
@@ -50,26 +40,8 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
     const stats = statSync(skillFile);
 
     if (argv.json) {
-      console.log(
-        JSON.stringify(
-          {
-            name: skill.name,
-            description: skill.description,
-            provider: skill.provider,
-            location: skill.location,
-            path: skillFile,
-            size: stats.size,
-            disabled: skill.disabled ?? false,
-            hasReferences: skill.hasReferences,
-            hasScripts: skill.hasScripts,
-            hasAssets: skill.hasAssets,
-            pluginInfo: skill.pluginInfo ?? null,
-            content: argv.full ? skill.content : skill.content.split("\n").slice(0, 20).join("\n"),
-          },
-          null,
-          2
-        )
-      );
+      const payload = await getSkillInfo(argv);
+      console.log(JSON.stringify(payload, null, 2));
       return;
     }
 

@@ -1,5 +1,4 @@
 import type { ArgumentsCamelCase } from "yargs";
-import type { SkillRegistryOptions } from "../../core/registry.js";
 import { SkillRegistry } from "../../core/registry.js";
 import { colors, highlight, type ListItem, renderList, setColorEnabled, tone } from "../../utils/format.js";
 import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
@@ -7,24 +6,14 @@ import { buildRegistryOptions } from "../registry-options.js";
 import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
 import { resolveSkill } from "../../utils/resolution.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
+import { searchSkills } from "../../api/search.js";
+import type { SearchOptions } from "../../api/types.js";
 
-export interface SearchArgs extends SkillRegistryOptions {
-  query: string;
-  content?: boolean;
-  noPlugins?: boolean;
-  skillDir?: string[];
-  scanDefaultDirs?: boolean;
-  pluginsFile?: string;
-  pluginsRoot?: string;
+export interface SearchArgs extends SearchOptions {
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
   format?: "plain" | "json";
-  include?: string[];
-  exclude?: string[];
-  limit?: number;
-  all?: boolean;
-  disabled?: boolean;
 }
 
 export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promise<void> {
@@ -60,14 +49,7 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
   const format = argv.json ? "json" : (argv.format ?? "plain");
 
   if (format === "json") {
-    const payload = filtered.map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      location: skill.location,
-      provider: skill.provider,
-      disabled: skill.disabled ?? false,
-      path: skill.path,
-    }));
+    const payload = await searchSkills(argv);
     console.log(JSON.stringify(payload, null, 2));
     return;
   }

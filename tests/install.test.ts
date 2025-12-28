@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
-import { installSkillDir } from "../src/cli/commands/install.js";
+import { installSkillDir } from "../src/api/install.js";
 
 function createSkill(dirName: string, description = "demo"): string {
   const root = mkdtempSync(join(tmpdir(), `ccski-install-${dirName}-`));

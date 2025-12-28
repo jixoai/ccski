@@ -1,41 +1,23 @@
 import type { ArgumentsCamelCase } from "yargs";
-import type { SkillRegistryOptions } from "../../core/registry.js";
-import { SkillRegistry } from "../../core/registry.js";
 import type { SkillLocation } from "../../types/skill.js";
 import { colors, dim, duplicateBadge, renderList, setColorEnabled, tone } from "../../utils/format.js";
-import { buildRegistryOptions } from "../registry-options.js";
-import { applyFilters, computeDuplicateGroups, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { computeDuplicateGroups } from "../../utils/filters.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
+import { listSkills } from "../../api/list.js";
+import type { ListOptions } from "../../api/types.js";
 
-export interface ListArgs extends SkillRegistryOptions {
+export interface ListArgs extends ListOptions {
   format?: "plain" | "json";
-  noPlugins?: boolean;
-  skillDir?: string[];
-  scanDefaultDirs?: boolean;
-  pluginsFile?: string;
-  pluginsRoot?: string;
   json?: boolean;
   noColor?: boolean;
   color?: boolean;
-  all?: boolean;
-  disabled?: boolean;
-  include?: string[];
-  exclude?: string[];
 }
 
 export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
 
-  const includeDisabled = Boolean(argv.all || argv.disabled);
-  const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
-
-  let skills = registry.getAll();
-  const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
-  const includeArgs = argv.include as string[] | undefined;
-  const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
-  const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
-  skills = applyFilters(skills, includes, excludes, state).sort((a, b) => a.name.localeCompare(b.name));
+  const skills = await listSkills(argv);
 
   const format = argv.json ? "json" : (argv.format ?? "plain");
 

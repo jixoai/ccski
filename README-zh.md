@@ -1,6 +1,8 @@
 # ccski – Claude Code 技能管理器
 
-ccski 是一个面向 CLI 与 MCP 的工具，用于发现、安装、启用/禁用并通过 MCP 提供 Claude Code 兼容的技能。本文档聚焦安装与使用；架构与设计哲学请看 `SPEC.md`。
+ccski 是一个面向 CLI 与 MCP 的工具，用于发现、安装、启用/禁用并通过 MCP 提供 Claude/Codex 兼容的技能。本文档聚焦安装与使用；架构与设计哲学请看 `SPEC.md`。
+
+文档站点：https://jixoai-labs.github.io/ccski/
 
 ## 安装
 
@@ -75,6 +77,7 @@ ccski disable --all
 
 ## 更多
 
+- 提供可编程 API（与 CLI `--json` 输出一致），详见文档站点的 API 文档。
 - Claude 用户：建议 `ccski mcp --exclude=claude`，避免回显内置 Claude skills。
 - Codex 用户：建议 `ccski mcp --exclude=codex`，避免回显内置 Codex skills。
 - 所有命令支持 `--json` 便于脚本化。

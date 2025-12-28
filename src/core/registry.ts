@@ -73,6 +73,9 @@ export class SkillRegistry {
       if (this.options.pluginsRoot) {
         pluginOptions.pluginsRoot = this.options.pluginsRoot;
       }
+      if (this.options.settingsFile) {
+        pluginOptions.settingsFile = this.options.settingsFile;
+      }
       if (this.options.userDir) {
         pluginOptions.userDir = this.options.userDir;
       }

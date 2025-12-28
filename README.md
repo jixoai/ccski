@@ -1,6 +1,8 @@
 # ccski – Claude Code Skills Manager
 
-ccski is a CLI + MCP server to discover, install, enable/disable, and serve Claude Code-compatible skills. This README covers install and usage. For architecture and UX philosophy, see `SPEC.md`.
+ccski is a CLI + MCP server to discover, install, enable/disable, and serve Claude/Codex-compatible skills. This README covers install and usage. For architecture and UX philosophy, see `SPEC.md`.
+
+Documentation site: https://jixoai-labs.github.io/ccski/
 
 ## Install
 
@@ -75,6 +77,7 @@ ccski disable --all
 
 ## More
 
+- Programmatic API is available from the package export; see the docs site for API usage examples.
 - Claude users: prefer `ccski mcp --exclude=claude` to avoid echoing built-in Claude skills.
 - Codex users: prefer `ccski mcp --exclude=codex` when avoid echoing built-in Codex skills.
 - All commands support `--json` for scripting.

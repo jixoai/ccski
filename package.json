@@ -1,6 +1,6 @@
 {
   "name": "ccski",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Claude Code Skills Manager - CLI and MCP interface for managing skills across AI agents",
   "type": "module",
   "bin": {
@@ -25,7 +25,10 @@
     "test:coverage": "vitest run --coverage",
     "ts": "tsc --noEmit",
     "lint": "echo 'Linting not configured yet'",
-    "fmt": "prettier --write ."
+    "fmt": "prettier --write .",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "claude-code",
@@ -69,6 +72,7 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
+    "vitepress": "^1.5.0",
     "yargs": "^17.7.2",
     "zod": "^3.24.1"
   },
