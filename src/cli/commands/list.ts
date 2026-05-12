@@ -11,6 +11,7 @@ import {
   setColorEnabled,
   tone,
 } from "../../utils/format.js";
+import { compareSkillProviders } from "../../utils/providers.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
 
 export interface ListArgs extends ListOptions {
@@ -34,7 +35,9 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   }
 
   const sections: string[] = [];
-  const providers = ["claude", "codex", "file"] as const;
+  const providers = Array.from(new Set(skills.map((skill) => skill.provider))).sort(
+    compareSkillProviders
+  );
   const locations: SkillLocation[] = ["project", "user", "plugin"];
 
   // Compute duplicate groups for --all mode

@@ -17,6 +17,23 @@ const defaultFormatOptions: Required<Omit<SkillIdFormatOptions, "providerColor">
   color: true,
 };
 
+function defaultProviderColor(provider: string): (text: string) => string {
+  switch (provider) {
+    case "agents":
+      return colors.magenta;
+    case "claude":
+      return colors.green;
+    case "codex":
+      return colors.cyan;
+    case "gemini":
+      return colors.blue;
+    case "openclaw":
+      return colors.yellow;
+    default:
+      return dim;
+  }
+}
+
 /**
  * Build a copy/paste friendly skill id that includes provider and plugin (when present).
  * Format: provider:@plugin:name or provider:name
@@ -62,16 +79,15 @@ export function formatSkillLabel(skill: SkillMetadata, opts?: SkillIdFormatOptio
 
   const providerPart = includeProvider ? `${skill.provider}:` : "";
   const pluginPart = skill.pluginInfo ? `@${skill.pluginInfo.pluginName}:` : "";
-  const baseName = skill.pluginInfo ? stripPluginPrefix(skill.name, skill.pluginInfo.pluginName) : skill.name;
+  const baseName = skill.pluginInfo
+    ? stripPluginPrefix(skill.name, skill.pluginInfo.pluginName)
+    : skill.name;
 
   if (!useColor) {
     return `${providerPart}${pluginPart}${baseName}`;
   }
 
-  // Colored segments
-  const defaultProviderColor =
-    skill.provider === "claude" ? colors.green : skill.provider === "codex" ? colors.cyan : dim;
-  const paintProvider = providerColor ?? defaultProviderColor;
+  const paintProvider = providerColor ?? defaultProviderColor(skill.provider);
   const green = paintProvider(providerPart.replace(/:$/, ""));
   const blue = colors.blue(baseName);
   const pluginColored = pluginPart ? dim(pluginPart) : "";

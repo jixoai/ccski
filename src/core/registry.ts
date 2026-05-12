@@ -1,6 +1,7 @@
 import type { CcskiDiagnostic } from "../types/diagnostics.js";
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../types/errors.js";
 import type { Skill, SkillMetadata, SkillProvider } from "../types/skill.js";
+import { parseProviderQualifiedName, providerNamesFromSkills } from "../utils/providers.js";
 import { rankStrings } from "../utils/search.js";
 import { formatSkillId } from "../utils/skill-id.js";
 import type { DiscoveryOptions } from "./discovery.js";
@@ -124,20 +125,9 @@ export class SkillRegistry {
    * Find a skill by name (case-insensitive, supports full and short names)
    */
   find(name: string): SkillMetadata {
-    const normalizedName = name.toLowerCase();
-
-    const [maybeProvider, rest] = normalizedName.includes(":")
-      ? ((): [string | undefined, string] => {
-          const parts = normalizedName.split(":");
-          if (parts.length > 1 && ["claude", "codex", "file"].includes(parts[0]!)) {
-            return [parts.shift(), parts.join(":")];
-          }
-          return [undefined, normalizedName];
-        })()
-      : [undefined, normalizedName];
-
-    const targetProvider = maybeProvider as SkillProvider | undefined;
-    const targetName = rest;
+    const parsed = parseProviderQualifiedName(name, providerNamesFromSkills(this.skills));
+    const targetProvider = parsed.provider;
+    const targetName = parsed.target;
 
     const candidates = this.skills.filter((skill) => {
       const skillName = skill.name.toLowerCase();

@@ -4,12 +4,12 @@ import { homedir } from "node:os";
 import yargs, { type Argv, type CommandModule } from "yargs";
 import { hideBin } from "yargs/helpers";
 import { infoCommand, type InfoArgs } from "./cli/commands/info.js";
+import { installCommand, type InstallArgs } from "./cli/commands/install.js";
 import { listCommand, type ListArgs } from "./cli/commands/list.js";
 import { mcpCommand, type McpArgs } from "./cli/commands/mcp.js";
 import { searchCommand, type SearchArgs } from "./cli/commands/search.js";
-import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
-import { installCommand, type InstallArgs } from "./cli/commands/install.js";
 import { disableCommand, enableCommand, type ToggleArgs } from "./cli/commands/toggle.js";
+import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
 
 const listModule: CommandModule<unknown, ListArgs> = {
   command: "list",
@@ -34,12 +34,15 @@ const listModule: CommandModule<unknown, ListArgs> = {
       })
       .option("include", { type: "array", string: true, description: "Include filters" })
       .option("exclude", { type: "array", string: true, description: "Exclude filters" })
-      .option("claude-plugins-file", { type: "string", description: "Path to Claude installed_plugins.json" })
+      .option("claude-plugins-file", {
+        type: "string",
+        description: "Path to Claude installed_plugins.json",
+      })
       .option("claude-plugins-root", { type: "string", description: "Root dir for Claude plugins" })
       .option("scan-default-dirs", {
         type: "boolean",
         default: true,
-        description: "Scan built-in .agent/.claude directories",
+        description: "Scan built-in workspace/user agent skill directories",
       }) as Argv<ListArgs>,
   handler: listCommand,
 };
@@ -54,8 +57,16 @@ const infoModule: CommandModule<unknown, InfoArgs> = {
       .option("json", { type: "boolean", default: false })
       .option("include", { type: "array", string: true, description: "Include filters" })
       .option("exclude", { type: "array", string: true, description: "Exclude filters" })
-      .option("all", { type: "boolean", default: false, description: "Include enabled and disabled skills" })
-      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills" })
+      .option("all", {
+        type: "boolean",
+        default: false,
+        description: "Include enabled and disabled skills",
+      })
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Include only disabled skills",
+      })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<InfoArgs>,
@@ -81,8 +92,16 @@ const searchModule: CommandModule<unknown, SearchArgs> = {
       })
       .option("include", { type: "array", string: true, description: "Include filters" })
       .option("exclude", { type: "array", string: true, description: "Exclude filters" })
-      .option("all", { type: "boolean", default: false, description: "Include enabled and disabled skills" })
-      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills" })
+      .option("all", {
+        type: "boolean",
+        default: false,
+        description: "Include enabled and disabled skills",
+      })
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Include only disabled skills",
+      })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<SearchArgs>,
@@ -98,8 +117,16 @@ const validateModule: CommandModule<unknown, ValidateArgs> = {
       .option("json", { type: "boolean", default: false })
       .option("include", { type: "array", string: true })
       .option("exclude", { type: "array", string: true })
-      .option("all", { type: "boolean", default: false, description: "Include enabled and disabled skills" })
-      .option("disabled", { type: "boolean", default: false, description: "Validate only disabled skills" })
+      .option("all", {
+        type: "boolean",
+        default: false,
+        description: "Include enabled and disabled skills",
+      })
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Validate only disabled skills",
+      })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" }) as Argv<ValidateArgs>,
   handler: validateCommand,
@@ -133,8 +160,16 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
       })
       .option("include", { type: "array", string: true })
       .option("exclude", { type: "array", string: true })
-      .option("all", { type: "boolean", default: false, description: "Include enabled and disabled skills" })
-      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills" })
+      .option("all", {
+        type: "boolean",
+        default: false,
+        description: "Include enabled and disabled skills",
+      })
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Include only disabled skills",
+      })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<McpArgs>,
@@ -147,15 +182,26 @@ const installModule: CommandModule<unknown, InstallArgs> = {
   builder: (cmd: Argv<unknown>): Argv<InstallArgs> =>
     cmd
       .positional("source", { type: "string", demandOption: true })
-      .option("out-dir", { type: "array", string: true, description: "Destination directory (repeatable)" })
+      .option("out-dir", {
+        type: "array",
+        string: true,
+        description: "Destination directory (repeatable)",
+      })
       .option("out-scope", {
         type: "array",
         string: true,
         description: "Destination scope claude|claude:@project|claude:@user|codex|codex:@user",
       })
-      .option("force", { type: "boolean", default: false, description: "Overwrite if skill already exists" })
+      .option("force", {
+        type: "boolean",
+        default: false,
+        description: "Overwrite if skill already exists",
+      })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
-      .option("path", { type: "string", description: "Explicit SKILL.md or marketplace.json path inside source" })
+      .option("path", {
+        type: "string",
+        description: "Explicit SKILL.md or marketplace.json path inside source",
+      })
       .option("mode", {
         choices: ["git", "file"] as const,
         description: "Materialization mode (default: git for http/https sources, file otherwise)",
@@ -167,14 +213,39 @@ const installModule: CommandModule<unknown, InstallArgs> = {
         default: false,
         description: "Interactively choose skills (requires TTY)",
       })
-      .option("all", { alias: "a", type: "boolean", default: false, description: "Install all discovered skills" })
+      .option("all", {
+        alias: "a",
+        type: "boolean",
+        default: false,
+        description: "Install all discovered skills",
+      })
       .option("include", { type: "array", string: true, description: "Filter skills to install" })
       .option("exclude", { type: "array", string: true, description: "Exclude skills from source" })
-      .option("disabled", { type: "boolean", default: false, description: "Include only disabled skills from source" })
-      .option("dry-run", { type: "boolean", default: false, description: "Preview what would be installed without installing" })
-      .option("timeout", { type: "number", description: "Git clone timeout in milliseconds (default: 120000)" })
-      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt in interactive mode" })
-      .option("json", { type: "boolean", default: false, description: "Output results as JSON" }) as Argv<InstallArgs>,
+      .option("disabled", {
+        type: "boolean",
+        default: false,
+        description: "Include only disabled skills from source",
+      })
+      .option("dry-run", {
+        type: "boolean",
+        default: false,
+        description: "Preview what would be installed without installing",
+      })
+      .option("timeout", {
+        type: "number",
+        description: "Git clone timeout in milliseconds (default: 120000)",
+      })
+      .option("yes", {
+        alias: "y",
+        type: "boolean",
+        default: false,
+        description: "Skip confirmation prompt in interactive mode",
+      })
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output results as JSON",
+      }) as Argv<InstallArgs>,
   handler: installCommand,
 };
 
@@ -188,11 +259,31 @@ const disableModule: CommandModule<unknown, ToggleArgs> = {
       .option("exclude", { type: "array", string: true })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" })
-      .option("interactive", { alias: "i", type: "boolean", default: false, description: "Interactively choose skills to disable" })
-      .option("all", { alias: "a", type: "boolean", default: false, description: "Disable all available skills" })
-      .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
+      .option("interactive", {
+        alias: "i",
+        type: "boolean",
+        default: false,
+        description: "Interactively choose skills to disable",
+      })
+      .option("all", {
+        alias: "a",
+        type: "boolean",
+        default: false,
+        description: "Disable all available skills",
+      })
+      .option("force", {
+        alias: "f",
+        type: "boolean",
+        default: false,
+        description: "Overwrite when both SKILL.md and .SKILL.md exist",
+      })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
-      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt" })
+      .option("yes", {
+        alias: "y",
+        type: "boolean",
+        default: false,
+        description: "Skip confirmation prompt",
+      })
       .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
   handler: disableCommand,
@@ -208,11 +299,31 @@ const enableModule: CommandModule<unknown, ToggleArgs> = {
       .option("exclude", { type: "array", string: true })
       .option("claude-plugins-file", { type: "string" })
       .option("claude-plugins-root", { type: "string" })
-      .option("interactive", { alias: "i", type: "boolean", default: false, description: "Interactively choose skills to enable" })
-      .option("all", { alias: "a", type: "boolean", default: false, description: "Enable all disabled skills" })
-      .option("force", { alias: "f", type: "boolean", default: false, description: "Overwrite when both SKILL.md and .SKILL.md exist" })
+      .option("interactive", {
+        alias: "i",
+        type: "boolean",
+        default: false,
+        description: "Interactively choose skills to enable",
+      })
+      .option("all", {
+        alias: "a",
+        type: "boolean",
+        default: false,
+        description: "Enable all disabled skills",
+      })
+      .option("force", {
+        alias: "f",
+        type: "boolean",
+        default: false,
+        description: "Overwrite when both SKILL.md and .SKILL.md exist",
+      })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
-      .option("yes", { alias: "y", type: "boolean", default: false, description: "Skip confirmation prompt" })
+      .option("yes", {
+        alias: "y",
+        type: "boolean",
+        default: false,
+        description: "Skip confirmation prompt",
+      })
       .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
       .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
   handler: enableCommand,
@@ -234,7 +345,8 @@ await yargs(hideBin(process.argv))
   .option("skill-dir", {
     type: "array",
     string: true,
-    description: "Additional skill directories (default scope 'other', use ?scope=name to override)",
+    description:
+      "Additional skill directories (default scope 'other', use ?scope=name to override)",
   })
   .option("user-dir", {
     type: "string",

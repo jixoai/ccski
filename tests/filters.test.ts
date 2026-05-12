@@ -1,10 +1,10 @@
-import { mkdtempSync, mkdirSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { applyFilters, parseFilters } from "../src/utils/filters.js";
 import type { SkillLocation, SkillMetadata, SkillProvider } from "../src/types/skill.js";
+import { applyFilters, parseFilters } from "../src/utils/filters.js";
 
 function makeDir(name: string): string {
   const base = mkdtempSync(join(tmpdir(), `ccski-filter-${name}-`));
@@ -76,13 +76,13 @@ describe("filters", () => {
   it("keeps auto choice and explicit provider entry when include order demands", () => {
     const claudePath = makeDir("auto-claude");
     const codexPath = makeDir("explicit-codex");
-    // Make claude newer so auto picks it
+    // Make claude newer and higher priority so auto picks it
     touchPath(claudePath, Date.now() + 2000);
     touchPath(codexPath, Date.now());
 
     const skills = [
-      skill("shared", "claude", "user", claudePath),
-      skill("shared", "codex", "project", codexPath),
+      skill("shared", "claude", "project", claudePath),
+      skill("shared", "codex", "user", codexPath),
     ];
 
     const { includes, excludes } = parseFilters(["auto,codex:shared"], undefined);
@@ -111,7 +111,9 @@ describe("filters", () => {
   });
 
   it("throws for unsupported provider group combinations", () => {
-    expect(() => parseFilters(["codex:@plugins"], undefined)).toThrow(/codex provider does not support @plugins/i);
+    expect(() => parseFilters(["codex:@plugins"], undefined)).toThrow(
+      /codex provider does not support @plugins/i
+    );
   });
 
   it("matches plugin group tokens with wildcards", () => {
@@ -149,7 +151,9 @@ describe("filters", () => {
   });
 
   it("errors when using codex@plugin syntax", () => {
-    expect(() => parseFilters(["codex@plugin:foo"], undefined)).toThrow(/only claude provider supports plugin-qualified/i);
+    expect(() => parseFilters(["codex@plugin:foo"], undefined)).toThrow(
+      /only claude provider supports plugin-qualified/i
+    );
   });
 
   it("prefers project over user when mtimes tie in auto mode", () => {
@@ -218,5 +222,51 @@ describe("filters", () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.location).toBe("user");
     expect(filtered[0]?.name).toBe("canvas-design");
+  });
+
+  it("prefers higher source priority before newer mtime in auto mode", () => {
+    const workspaceAgentPath = makeDir("workspace-agent");
+    const userSharedPath = makeDir("user-shared");
+    touchPath(workspaceAgentPath, Date.now());
+    touchPath(userSharedPath, Date.now() + 10_000);
+
+    const skills = [
+      skill("review", "gemini", "project", workspaceAgentPath, {
+        sourceKind: "workspace-agent",
+        sourcePriority: 400,
+      }),
+      skill("review", "agents", "user", userSharedPath, {
+        sourceKind: "user-shared",
+        sourcePriority: 100,
+      }),
+    ];
+
+    const { includes, excludes } = parseFilters(undefined, undefined);
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.provider).toBe("gemini");
+  });
+
+  it("accepts discovered dynamic providers when provider context is supplied", () => {
+    const dynamicPath = makeDir("dynamic-provider");
+    const otherPath = makeDir("dynamic-other");
+    const skills = [
+      skill("review", "myagent", "user", dynamicPath),
+      skill("review", "gemini", "user", otherPath),
+    ];
+
+    const { includes, excludes } = parseFilters(["myagent:review"], undefined, {
+      providers: ["myagent"],
+    });
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.provider).toBe("myagent");
+  });
+
+  it("keeps unknown provider-looking names as bare skill names without provider context", () => {
+    const { includes } = parseFilters(["myagent:review"], undefined);
+    expect(includes[0]).toMatchObject({ provider: "auto", namePattern: "myagent:review" });
   });
 });

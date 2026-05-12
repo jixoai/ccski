@@ -2,14 +2,18 @@ import { existsSync, lstatSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseSkillFile, validateSkillFile } from "../core/parser.js";
 import { SkillRegistry } from "../core/registry.js";
+import type { SkillProvider } from "../types/skill.js";
 import { applyFilters } from "../utils/filters.js";
+import { providerNamesFromSkills } from "../utils/providers.js";
 import { buildRegistryOptions } from "../utils/registry-options.js";
 import { resolveFilters } from "./filters.js";
 import type { ValidateOptions, ValidateResult } from "./types.js";
 
 export async function validateSkill(options: ValidateOptions): Promise<ValidateResult> {
   const registry = new SkillRegistry(buildRegistryOptions(options));
-  const { includes, excludes, state } = resolveFilters(options);
+  const { includes, excludes, state } = resolveFilters(options, {
+    providers: providerNamesFromSkills(registry.getAll()),
+  });
   const filtered = applyFilters(registry.getAll(), includes, excludes, state);
 
   const target = resolve(options.path);
@@ -27,7 +31,9 @@ export async function validateSkill(options: ValidateOptions): Promise<ValidateR
   if (result.success && provider === "codex") {
     try {
       const parsed = parseSkillFile(skillFile);
-      codexIssues.push(...codexRuleViolations(parsed.frontmatter.name, parsed.frontmatter.description));
+      codexIssues.push(
+        ...codexRuleViolations(parsed.frontmatter.name, parsed.frontmatter.description)
+      );
       const stats = lstatSync(skillFile);
       if (stats.isSymbolicLink()) {
         codexWarnings.push(`SKILL.md is a symlink (${skillFile})`);
@@ -70,13 +76,15 @@ function resolveSkillFile(input: string): string | null {
 
 function inferProvider(
   skillPath: string,
-  filtered: Array<{ path: string; provider: "claude" | "codex" | "file" }>
-): "claude" | "codex" | "file" {
+  filtered: Array<{ path: string; provider: SkillProvider }>
+): SkillProvider {
   const lower = skillPath.toLowerCase();
   const match = filtered.find((s) => s.path === resolve(skillPath, ".."));
   if (match) return match.provider;
-  if (lower.includes("/.codex/skills")) return "codex";
-  if (lower.includes("/.claude/skills") || lower.includes("/.agent/skills")) return "claude";
+  const hiddenAgent = lower.split("/").find((segment) => segment.startsWith("."));
+  const provider = hiddenAgent?.slice(1);
+  if (provider === "agent" || provider === "agents") return "agents";
+  if (provider && lower.includes(`/.${provider}/skills`)) return provider;
   return "file";
 }
 

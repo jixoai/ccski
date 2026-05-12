@@ -1,4 +1,10 @@
-import { parseFilters, type ExcludeToken, type IncludeToken, type StateFilter } from "../utils/filters.js";
+import {
+  parseFilters,
+  type ExcludeToken,
+  type IncludeToken,
+  type ParseFilterOptions,
+  type StateFilter,
+} from "../utils/filters.js";
 
 export interface FilterOptions {
   include?: string[];
@@ -14,10 +20,17 @@ export interface ResolvedFilters {
   includeDisabled: boolean;
 }
 
-export function resolveFilters(options: FilterOptions): ResolvedFilters {
+export function resolveFilters(
+  options: FilterOptions,
+  parseOptions: ParseFilterOptions = {}
+): ResolvedFilters {
   const includeArgs = options.include as string[] | undefined;
   const includeFallback = !includeArgs?.length && options.all ? ["all"] : includeArgs;
-  const { includes, excludes } = parseFilters(includeFallback, options.exclude as string[] | undefined);
+  const { includes, excludes } = parseFilters(
+    includeFallback,
+    options.exclude as string[] | undefined,
+    parseOptions
+  );
   const state: StateFilter = options.disabled ? "disabled" : options.all ? "all" : "enabled";
   const includeDisabled = state === "all" || state === "disabled";
   return { includes, excludes, state, includeDisabled };

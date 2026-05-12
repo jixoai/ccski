@@ -13,7 +13,10 @@ export function setColorEnabled(enabled: boolean): void {
 
 type Colorizer = (text: string) => string;
 
-const applyTone = (colorFn: Colorizer): Colorizer => (text) => (colorEnabled ? colorFn(text) : text);
+const applyTone =
+  (colorFn: Colorizer): Colorizer =>
+  (text) =>
+    colorEnabled ? colorFn(text) : text;
 
 export const tone = {
   primary: applyTone((text) => colors.blue(text)),
@@ -60,8 +63,11 @@ export function heading(text: string): string {
 
 export function providerBadge(provider: SkillProvider): string {
   const label = `[${provider}]`;
+  if (provider === "agents") return tone.accent(label);
   if (provider === "claude") return tone.success(label);
   if (provider === "codex") return tone.info(label);
+  if (provider === "gemini") return tone.primary(label);
+  if (provider === "openclaw") return tone.warning(label);
   return dim(label);
 }
 

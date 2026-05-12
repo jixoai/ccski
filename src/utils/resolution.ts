@@ -1,24 +1,20 @@
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../types/errors.js";
 import type { SkillMetadata, SkillProvider } from "../types/skill.js";
+import { parseProviderQualifiedName, providerNamesFromSkills } from "./providers.js";
 import { rankStrings } from "./search.js";
 import { formatSkillId, skillAliases } from "./skill-id.js";
-
-function parseName(input: string): { provider?: SkillProvider; target: string } {
-  const lower = input.toLowerCase();
-  const parts = lower.split(":");
-  if (parts.length > 1 && ["claude", "codex", "file"].includes(parts[0]!)) {
-    const provider = parts.shift() as SkillProvider;
-    return { provider, target: parts.join(":") };
-  }
-  return { target: lower };
-}
 
 function matchesName(skill: SkillMetadata, target: string): boolean {
   const lowerTarget = target.toLowerCase();
   return skillAliases(skill).includes(lowerTarget);
 }
 
-function suggestions(skills: SkillMetadata[], query: string, provider?: SkillProvider, limit = 3): string[] {
+function suggestions(
+  skills: SkillMetadata[],
+  query: string,
+  provider?: SkillProvider,
+  limit = 3
+): string[] {
   const pool = skills
     .filter((s) => (provider ? s.provider === provider : true))
     .map((s) => formatSkillId(s));
@@ -27,13 +23,19 @@ function suggestions(skills: SkillMetadata[], query: string, provider?: SkillPro
 }
 
 export function resolveSkill(skills: SkillMetadata[], name: string): SkillMetadata {
-  const { provider, target } = parseName(name);
-  const matches = skills.filter((skill) => matchesName(skill, target) && (!provider || skill.provider === provider));
+  const { provider, target } = parseProviderQualifiedName(name, providerNamesFromSkills(skills));
+  const matches = skills.filter(
+    (skill) => matchesName(skill, target) && (!provider || skill.provider === provider)
+  );
 
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) {
     const prefs = matches.map((m) => formatSkillId(m));
-    throw new AmbiguousSkillNameError(name, matches.map((m) => m.name), prefs);
+    throw new AmbiguousSkillNameError(
+      name,
+      matches.map((m) => m.name),
+      prefs
+    );
   }
 
   throw new SkillNotFoundError(name, suggestions(skills, name, provider));

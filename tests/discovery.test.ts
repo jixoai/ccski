@@ -96,7 +96,7 @@ describe("discoverSkills", () => {
 
   it("uses userDir to resolve default user roots", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "ccski-userdir-"));
-    const userSkillDir = join(fakeHome, ".claude/skills/alpha");
+    const userSkillDir = join(fakeHome, ".agents/skills/alpha");
     mkdirSync(userSkillDir, { recursive: true });
     writeFileSync(
       join(userSkillDir, "SKILL.md"),
@@ -106,11 +106,42 @@ describe("discoverSkills", () => {
     const result = discoverSkills({ userDir: fakeHome });
     expect(result.skills.find((s) => s.name === "alpha")).toBeDefined();
     expect(result.skills.find((s) => s.name === "alpha")?.location).toBe("user");
+    expect(result.skills.find((s) => s.name === "alpha")?.provider).toBe("agents");
     expect(
       result.diagnostics.scannedDirectories.some((d) =>
-        d.startsWith(join(fakeHome, ".claude/skills"))
+        d.startsWith(join(fakeHome, ".agents/skills"))
       )
     ).toBe(true);
+  });
+
+  it("discovers shared, built-in agent, and shallow dynamic agent roots", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "ccski-agent-roots-workspace-"));
+    const fakeHome = mkdtempSync(join(tmpdir(), "ccski-agent-roots-home-"));
+    const prevCwd = process.cwd();
+    process.chdir(workspace);
+    try {
+      createSkill(join(fakeHome, ".agents/skills"), "shared-user", "shared-user");
+      createSkill(join(fakeHome, ".gemini/skills"), "gemini-user", "gemini-user");
+      createSkill(join(workspace, "skills"), "shared-workspace", "shared-workspace");
+      createSkill(join(workspace, ".agents/skills"), "agents-workspace", "agents-workspace");
+      createSkill(join(workspace, ".openclaw/skills"), "openclaw-workspace", "openclaw-workspace");
+      createSkill(join(workspace, ".myagent/skills"), "dynamic-workspace", "dynamic-workspace");
+      createSkill(join(workspace, ".cache/nested/skills"), "ignored-cache", "ignored-cache");
+
+      const result = discoverSkills({ userDir: fakeHome });
+      const byName = new Map(result.skills.map((skill) => [skill.name, skill]));
+
+      expect(byName.get("shared-user")?.provider).toBe("agents");
+      expect(byName.get("gemini-user")?.provider).toBe("gemini");
+      expect(byName.get("shared-workspace")?.provider).toBe("agents");
+      expect(byName.get("agents-workspace")?.provider).toBe("agents");
+      expect(byName.get("openclaw-workspace")?.provider).toBe("openclaw");
+      expect(byName.get("dynamic-workspace")?.provider).toBe("myagent");
+      expect(byName.has("ignored-cache")).toBe(false);
+      expect(result.diagnostics.byProvider.myagent).toBe(1);
+    } finally {
+      process.chdir(prevCwd);
+    }
   });
 
   it("prefixes skills from --skill-dir with default scope 'other'", () => {

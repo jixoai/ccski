@@ -1,15 +1,16 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { ArgumentsCamelCase } from "yargs";
-import { dim, formatBytes, setColorEnabled, success } from "../../utils/format.js";
-import { SkillRegistry } from "../../core/registry.js";
+import { getSkillInfo } from "../../api/info.js";
 import type { InfoOptions } from "../../api/types.js";
+import { SkillRegistry } from "../../core/registry.js";
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
-import { buildRegistryOptions } from "../registry-options.js";
 import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import { dim, formatBytes, setColorEnabled, success } from "../../utils/format.js";
+import { providerNamesFromSkills } from "../../utils/providers.js";
 import { resolveSkill } from "../../utils/resolution.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
-import { getSkillInfo } from "../../api/info.js";
+import { buildRegistryOptions } from "../registry-options.js";
 
 export interface InfoArgs extends InfoOptions {
   json?: boolean;
@@ -31,7 +32,11 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
   try {
     const includeArgs = argv.include as string[] | undefined;
     const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
-    const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
+    const { includes, excludes } = parseFilters(
+      includeFallback,
+      argv.exclude as string[] | undefined,
+      { providers: providerNamesFromSkills(registry.getAll()) }
+    );
     const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
     const filtered = applyFilters(registry.getAll(), includes, excludes, state);
     const resolved = resolveSkill(filtered, argv.name);

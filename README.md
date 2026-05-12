@@ -55,15 +55,15 @@ MCP plugin config example (Codex/Cursor/Windsurf/VS Code):
 
 ### Core CLI commands
 
-| Command | Purpose |
-| --- | --- |
-| `ccski list` | List discovered skills (project, user, plugin) |
-| `ccski info <name>` | Show metadata and content preview |
-| `ccski install <source> [-i|--all|--path]` | Install from git/dir/marketplace/SKILL.md; interactive picker available |
-| `ccski enable [names...] [-i|--all]` | Enable skills (`.SKILL.md` -> `SKILL.md`) |
-| `ccski disable [names...] [-i|--all]` | Disable skills (`SKILL.md` -> `.SKILL.md`) |
-| `ccski validate <path>` | Validate SKILL.md or skill directory |
-| `ccski mcp` | Start MCP server (stdio/http/sse) |
+| Command                                         | Purpose                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ccski list`                                    | List discovered skills (project, user, plugin)                                 |
+| `ccski info <name>`                             | Show metadata and content preview                                              |
+| `ccski install <source> [-i\|--all\|--path]`    | Install from git/dir/marketplace/SKILL.md; interactive picker available        |
+| `ccski enable [names...] [-i\|--all]`           | Enable skills (`.SKILL.md` -> `SKILL.md`)                                      |
+| `ccski disable [names...] [-i\|--all]`          | Disable skills (`SKILL.md` -> `.SKILL.md`)                                     |
+| `ccski validate <path>`                         | Validate SKILL.md or skill directory                                           |
+| `ccski mcp`                                     | Start MCP server (stdio/http/sse)                                              |
 
 ### Install examples
 
@@ -119,7 +119,7 @@ import type { Skill, SkillMetadata } from "ccski";
 
 ### Types
 
-- `SkillProvider`: `"claude" | "codex" | "file"`
+- `SkillProvider`: built-ins `"agents" | "claude" | "codex" | "gemini" | "openclaw" | "file"` plus discovered `.<agent>/skills` providers
 - `SkillLocation`: `"user" | "project" | "plugin"`
 - `SkillFrontmatter`: required SKILL.md frontmatter shape (`name`, `description`, plus extra fields)
 - `SkillMetadata`: discovered skill summary (name/description/provider/location/path + bundled resources flags)

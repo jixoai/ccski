@@ -6,6 +6,7 @@ import { SkillRegistry } from "../core/registry.js";
 import type { SkillMetadata } from "../types/skill.js";
 import { applyFilters, parseFilters, type StateFilter } from "../utils/filters.js";
 import { dim, heading, renderList, tone } from "../utils/format.js";
+import { providerNamesFromSkills } from "../utils/providers.js";
 import { buildRegistryOptions } from "../utils/registry-options.js";
 import { resolveSelectors as resolveNamedSelectors } from "../utils/resolution.js";
 import { skillAliases } from "../utils/skill-id.js";
@@ -28,7 +29,8 @@ export async function toggleSkills(
   const registry = new SkillRegistry(buildRegistryOptions(options, { includeDisabled: true }));
   const { includes, excludes } = parseFilters(
     options.include as string[] | undefined,
-    options.exclude as string[] | undefined
+    options.exclude as string[] | undefined,
+    { providers: providerNamesFromSkills(registry.getAll()) }
   );
   const state: StateFilter = "all";
   const skills = applyFilters(registry.getAll(), includes, excludes, state);

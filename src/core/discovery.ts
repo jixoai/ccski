@@ -4,27 +4,23 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CcskiDiagnostic } from "../types/diagnostics.js";
 import { diagnosticToWarning } from "../types/diagnostics.js";
-import type { Skill, SkillLocation, SkillMetadata, SkillProvider } from "../types/skill.js";
+import type {
+  Skill,
+  SkillLocation,
+  SkillMetadata,
+  SkillProvider,
+  SkillSourceKind,
+} from "../types/skill.js";
 import { parseSkillFile } from "./parser.js";
+import { getDefaultSkillDirectories } from "./skill-roots.js";
 
-export function getDefaultSkillDirectories(
-  userDir: string
-): ReadonlyArray<{ path: string; provider: SkillProvider }> {
-  return [
-    { path: ".agent/skills", provider: "claude" }, // Project universal
-    { path: ".claude/skills", provider: "claude" }, // Project Claude Code
-    { path: join(userDir, ".agent/skills"), provider: "claude" }, // User universal
-    { path: join(userDir, ".claude/skills"), provider: "claude" }, // User Claude Code
-    { path: ".codex/skills", provider: "codex" }, // Project Codex
-    { path: join(userDir, ".codex/skills"), provider: "codex" }, // User Codex
-  ];
-}
+export { getDefaultSkillDirectories } from "./skill-roots.js";
 
 export interface DiscoveryDiagnostics {
   scannedDirectories: string[];
   warnings: string[];
   conflicts: string[];
-  byProvider: Record<SkillProvider, number>;
+  byProvider: Record<string, number>;
   events: CcskiDiagnostic[];
 }
 
@@ -84,22 +80,16 @@ function addDiscoveryDiagnostic(
  */
 function determineLocation(dirPath: string, userDir: string): SkillLocation {
   const normalizedPath = resolve(dirPath);
-  const cwd = process.cwd();
-  const home = userDir;
+  const cwd = resolve(process.cwd());
+  const home = resolve(userDir);
+  const relativeToCwd = normalizedPath.startsWith(cwd) ? normalizedPath.slice(cwd.length) : "";
+  const relativeToHome = normalizedPath.startsWith(home) ? normalizedPath.slice(home.length) : "";
 
-  if (
-    normalizedPath.startsWith(join(cwd, ".agent")) ||
-    normalizedPath.startsWith(join(cwd, ".claude")) ||
-    normalizedPath.startsWith(join(cwd, ".codex"))
-  ) {
+  if (relativeToCwd.startsWith("/skills") || /^\/\.[^/]+\/skills(?:\/|$)/.test(relativeToCwd)) {
     return "project";
   }
 
-  if (
-    normalizedPath.startsWith(join(home, ".agent")) ||
-    normalizedPath.startsWith(join(home, ".claude")) ||
-    normalizedPath.startsWith(join(home, ".codex"))
-  ) {
+  if (/^\/\.[^/]+\/skills(?:\/|$)/.test(relativeToHome)) {
     return "user";
   }
 
@@ -156,6 +146,8 @@ interface ScanOptions {
   recursive?: boolean;
   diagnostics: DiscoveryDiagnostics;
   includeDisabled?: boolean;
+  sourceKind?: SkillSourceKind;
+  sourcePriority?: number;
 }
 
 /**
@@ -163,7 +155,14 @@ interface ScanOptions {
  */
 export function scanSkillDirectory(
   dirPath: string,
-  { location, recursive = true, diagnostics, includeDisabled = false }: ScanOptions,
+  {
+    location,
+    recursive = true,
+    diagnostics,
+    includeDisabled = false,
+    sourceKind,
+    sourcePriority,
+  }: ScanOptions,
   provider: SkillProvider,
   userDir: string = homedir(),
   scope?: string
@@ -202,6 +201,8 @@ export function scanSkillDirectory(
           description: parsed.frontmatter.description,
           provider,
           location: skillLocation,
+          ...(sourceKind ? { sourceKind } : {}),
+          ...(sourcePriority !== undefined ? { sourcePriority } : {}),
           path: skillDir,
           disabled: candidate.disabled,
           ...resources,
@@ -231,8 +232,6 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
     warnings: [],
     conflicts: [],
     byProvider: {
-      claude: 0,
-      codex: 0,
       file: 0,
     },
     events: [],
@@ -240,7 +239,14 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
 
   const userDir = options.userDir ? resolve(options.userDir) : homedir();
 
-  const directories: Array<{ path: string; provider: SkillProvider; scope?: string }> = [];
+  const directories: Array<{
+    path: string;
+    provider: SkillProvider;
+    scope?: string;
+    location?: SkillLocation;
+    sourceKind?: SkillSourceKind;
+    sourcePriority?: number;
+  }> = [];
 
   if (options.customDirs?.length) {
     for (const entry of options.customDirs) {
@@ -250,6 +256,8 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
         directories.push({
           path: entry,
           provider,
+          sourceKind: "custom",
+          sourcePriority: 500,
           ...(scope ? { scope } : {}),
         });
       } else {
@@ -257,6 +265,8 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
         directories.push({
           path: entry.path,
           provider,
+          sourceKind: "custom",
+          sourcePriority: 500,
           ...(scope ? { scope } : {}),
         });
       }
@@ -271,14 +281,17 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
   const firstPathByName = new Map<string, string>();
 
   for (const entry of directories) {
-    const { path: dir, provider, scope } = entry;
+    const { path: dir, provider, scope, location, sourceKind, sourcePriority } = entry;
     const absoluteDir = dir.startsWith("/") ? dir : resolve(process.cwd(), dir);
     const skillsFromDir = scanSkillDirectory(
       absoluteDir,
       {
+        ...(location ? { location } : {}),
         diagnostics,
         recursive: true,
         includeDisabled: options.includeDisabled === true,
+        ...(sourceKind ? { sourceKind } : {}),
+        ...(sourcePriority !== undefined ? { sourcePriority } : {}),
       },
       provider,
       userDir,

@@ -1,11 +1,17 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import type { SkillLocation, SkillMetadata, SkillProvider } from "../types/skill.js";
+import type { SkillMetadata, SkillProvider } from "../types/skill.js";
+import { SKILL_SOURCE_PRIORITIES } from "../types/skill.js";
+import {
+  buildKnownProviderSet,
+  compareSkillProviders,
+  normalizeProviderName,
+} from "./providers.js";
 
 export type GroupToken = "plugins";
 
 export interface IncludeToken {
-  provider: "auto" | "all" | SkillProvider | "file";
+  provider: "auto" | "all" | SkillProvider;
   namePattern?: string; // may include wildcards
   group?: GroupToken;
   pluginNamePattern?: string;
@@ -22,15 +28,24 @@ export interface FilterParseResult {
 export type StateFilter = "enabled" | "disabled" | "all";
 
 const WILDCARD_REGEX = /[\*\?]/;
+const PLUGIN_PROVIDER = "claude";
 
 function globToRegex(pattern: string): RegExp {
-  const escaped = pattern.replace(/[-/\\^$+?.()|{}]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  const escaped = pattern
+    .replace(/[-/\\^$+?.()|{}]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
   return new RegExp(`^${escaped}$`, "i");
 }
 
-function parseToken(raw: string): IncludeToken {
+export interface ParseFilterOptions {
+  providers?: Iterable<string>;
+}
+
+function parseToken(raw: string, options: ParseFilterOptions = {}): IncludeToken {
   const token = raw.trim();
   if (!token) throw new Error("Empty include/exclude token");
+  const knownProviders = buildKnownProviderSet(options.providers);
 
   // file: path alias
   if (token.startsWith("file:")) {
@@ -46,9 +61,9 @@ function parseToken(raw: string): IncludeToken {
     const pluginAndSkill = rest ?? "";
     const [pluginNameRaw, ...skillParts] = pluginAndSkill.split(":").filter(Boolean);
     const skillName = skillParts.length ? skillParts.join(":") : undefined;
-    const providerScope = prefix || "claude";
+    const providerScope = prefix || PLUGIN_PROVIDER;
 
-    if (providerScope !== "claude") {
+    if (providerScope !== PLUGIN_PROVIDER) {
       throw new Error("Only claude provider supports plugin-qualified skill ids");
     }
     if (!pluginNameRaw) {
@@ -56,7 +71,7 @@ function parseToken(raw: string): IncludeToken {
     }
 
     const obj: IncludeToken = {
-      provider: "claude",
+      provider: PLUGIN_PROVIDER,
       group: "plugins",
       pluginNamePattern: pluginNameRaw,
     };
@@ -73,7 +88,7 @@ function parseToken(raw: string): IncludeToken {
       throw new Error(`Unsupported group token '${group}'`);
     }
     const obj: IncludeToken = {
-      provider: "claude",
+      provider: PLUGIN_PROVIDER,
       group: "plugins",
     };
     if (pluginName) obj.pluginNamePattern = pluginName;
@@ -83,9 +98,12 @@ function parseToken(raw: string): IncludeToken {
   const [head, ...rest] = token.split(":");
 
   // provider specified
-  if (["claude", "codex", "all", "auto", "file"].includes(head)) {
+  const normalizedHead = normalizeProviderName(head);
+  const isProviderToken =
+    normalizedHead === "all" || normalizedHead === "auto" || knownProviders.has(normalizedHead);
+  if (isProviderToken) {
     if (rest.length === 0) {
-      return { provider: head as IncludeToken["provider"] };
+      return { provider: normalizedHead as IncludeToken["provider"] };
     }
 
     // group token
@@ -94,13 +112,13 @@ function parseToken(raw: string): IncludeToken {
       if (groupToken !== "@plugins") {
         throw new Error(`Unsupported group token '${groupToken}'`);
       }
-      if (head === "codex") {
-        throw new Error("codex provider does not support @plugins");
+      if (normalizedHead !== PLUGIN_PROVIDER) {
+        throw new Error(`${normalizedHead} provider does not support @plugins`);
       }
       const pluginName = rest[1];
       const skillName = rest.slice(2).join(":") || undefined;
       const obj: IncludeToken = {
-        provider: "claude",
+        provider: PLUGIN_PROVIDER,
         group: "plugins",
       };
       if (pluginName) obj.pluginNamePattern = pluginName;
@@ -109,7 +127,7 @@ function parseToken(raw: string): IncludeToken {
     }
 
     const namePattern = rest.join(":");
-    return { provider: head as IncludeToken["provider"], namePattern };
+    return { provider: normalizedHead as IncludeToken["provider"], namePattern };
   }
 
   // bare name defaults to auto provider
@@ -118,18 +136,19 @@ function parseToken(raw: string): IncludeToken {
 
 export function parseFilters(
   includeArgs: string[] | undefined,
-  excludeArgs: string[] | undefined
+  excludeArgs: string[] | undefined,
+  options: ParseFilterOptions = {}
 ): FilterParseResult {
   const includes: IncludeToken[] = [];
   const excludes: ExcludeToken[] = [];
 
   const includeList = includeArgs && includeArgs.length ? includeArgs : ["auto"];
   for (const raw of includeList.flatMap((s) => s.split(","))) {
-    includes.push(parseToken(raw));
+    includes.push(parseToken(raw, options));
   }
 
   for (const raw of (excludeArgs ?? []).flatMap((s) => s.split(","))) {
-    excludes.push(parseToken(raw));
+    excludes.push(parseToken(raw, options));
   }
 
   return { includes, excludes };
@@ -150,7 +169,11 @@ function getBaseSkillName(name: string): string {
   return name.split(":").pop() ?? name;
 }
 
-function selectByToken(skills: SkillMetadata[], token: IncludeToken, includeDisabled: boolean): SkillMetadata[] {
+function selectByToken(
+  skills: SkillMetadata[],
+  token: IncludeToken,
+  includeDisabled: boolean
+): SkillMetadata[] {
   if (token.provider === "auto") {
     // auto: dedup by base skill name across all providers/locations
     const map = new Map<string, SkillMetadata>();
@@ -176,7 +199,10 @@ function selectByToken(skills: SkillMetadata[], token: IncludeToken, includeDisa
 
     if (token.group === "plugins") {
       if (skill.location !== "plugin") return false;
-      if (token.pluginNamePattern && !matchesPattern(skill.pluginInfo?.pluginName ?? "", token.pluginNamePattern)) {
+      if (
+        token.pluginNamePattern &&
+        !matchesPattern(skill.pluginInfo?.pluginName ?? "", token.pluginNamePattern)
+      ) {
         return false;
       }
     }
@@ -187,25 +213,37 @@ function selectByToken(skills: SkillMetadata[], token: IncludeToken, includeDisa
 
     if (token.namePattern) {
       const shortName = skill.name.split(":").pop() ?? skill.name;
-      return matchesPattern(skill.name, token.namePattern) || matchesPattern(shortName, token.namePattern);
+      return (
+        matchesPattern(skill.name, token.namePattern) ||
+        matchesPattern(shortName, token.namePattern)
+      );
     }
     return true;
   });
 }
 
 function chooseByFreshness(a: SkillMetadata, b: SkillMetadata): SkillMetadata {
-  // Prefer non-plugin copies when names collide
-  if (a.location === "plugin" && b.location !== "plugin") return b;
-  if (b.location === "plugin" && a.location !== "plugin") return a;
+  const priorityA = sourcePriority(a);
+  const priorityB = sourcePriority(b);
+  if (priorityA !== priorityB) {
+    return priorityB > priorityA ? b : a;
+  }
 
   const mtimeA = safeMTime(a.path);
   const mtimeB = safeMTime(b.path);
   if (mtimeA !== mtimeB) {
     return mtimeB > mtimeA ? b : a;
   }
-  const priority: SkillLocation[] = ["project", "user", "plugin"];
-  const score = (s: SkillMetadata) => priority.indexOf(s.location);
-  return score(a) <= score(b) ? a : b;
+
+  const providerOrder = compareSkillProviders(a.provider, b.provider);
+  return providerOrder <= 0 ? a : b;
+}
+
+function sourcePriority(skill: SkillMetadata): number {
+  if (skill.sourcePriority !== undefined) return skill.sourcePriority;
+  if (skill.location === "plugin") return SKILL_SOURCE_PRIORITIES.plugin;
+  if (skill.location === "project") return SKILL_SOURCE_PRIORITIES["workspace-agent"];
+  return SKILL_SOURCE_PRIORITIES["user-agent"];
 }
 
 function safeMTime(dirPath: string): number {
@@ -275,7 +313,9 @@ export interface DuplicateGroup {
  * Compute duplicate groups for skills that share the same base name.
  * Returns a map from skill path to its duplicate group info.
  */
-export function computeDuplicateGroups(skills: SkillMetadata[]): Map<string, { groupIndex: number; isPrimary: boolean }> {
+export function computeDuplicateGroups(
+  skills: SkillMetadata[]
+): Map<string, { groupIndex: number; isPrimary: boolean }> {
   const byBaseName = new Map<string, SkillMetadata[]>();
 
   for (const skill of skills) {

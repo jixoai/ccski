@@ -2,14 +2,20 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { SkillRegistry } from "../core/registry.js";
 import { applyFilters } from "../utils/filters.js";
+import { providerNamesFromSkills } from "../utils/providers.js";
 import { buildRegistryOptions } from "../utils/registry-options.js";
 import { resolveSkill } from "../utils/resolution.js";
 import { resolveFilters } from "./filters.js";
 import type { InfoOptions, SkillInfoResult } from "./types.js";
 
 export async function getSkillInfo(options: InfoOptions): Promise<SkillInfoResult> {
-  const { includes, excludes, state, includeDisabled } = resolveFilters(options);
-  const registry = new SkillRegistry(buildRegistryOptions(options, { includeDisabled }));
+  const initialFilters = resolveFilters(options);
+  const registry = new SkillRegistry(
+    buildRegistryOptions(options, { includeDisabled: initialFilters.includeDisabled })
+  );
+  const { includes, excludes, state } = resolveFilters(options, {
+    providers: providerNamesFromSkills(registry.getAll()),
+  });
   const filtered = applyFilters(registry.getAll(), includes, excludes, state);
   const resolved = resolveSkill(filtered, options.name);
   const skill = registry.load(`${resolved.provider}:${resolved.name}`);

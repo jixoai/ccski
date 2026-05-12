@@ -1,13 +1,21 @@
 import type { ArgumentsCamelCase } from "yargs";
-import { SkillRegistry } from "../../core/registry.js";
-import { colors, highlight, type ListItem, renderList, setColorEnabled, tone } from "../../utils/format.js";
-import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
-import { buildRegistryOptions } from "../registry-options.js";
-import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
-import { resolveSkill } from "../../utils/resolution.js";
-import { formatSkillLabel } from "../../utils/skill-id.js";
 import { searchSkills } from "../../api/search.js";
 import type { SearchOptions } from "../../api/types.js";
+import { SkillRegistry } from "../../core/registry.js";
+import { applyFilters, parseFilters, type StateFilter } from "../../utils/filters.js";
+import {
+  colors,
+  highlight,
+  type ListItem,
+  renderList,
+  setColorEnabled,
+  tone,
+} from "../../utils/format.js";
+import { providerNamesFromSkills } from "../../utils/providers.js";
+import { resolveSkill } from "../../utils/resolution.js";
+import { containsCaseInsensitive, rankStrings } from "../../utils/search.js";
+import { formatSkillLabel } from "../../utils/skill-id.js";
+import { buildRegistryOptions } from "../registry-options.js";
 
 export interface SearchArgs extends SearchOptions {
   json?: boolean;
@@ -28,7 +36,11 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
   const registry = new SkillRegistry(buildRegistryOptions(argv, { includeDisabled }));
   const includeArgs = argv.include as string[] | undefined;
   const includeFallback = !includeArgs?.length && argv.all ? ["all"] : includeArgs;
-  const { includes, excludes } = parseFilters(includeFallback, argv.exclude as string[] | undefined);
+  const { includes, excludes } = parseFilters(
+    includeFallback,
+    argv.exclude as string[] | undefined,
+    { providers: providerNamesFromSkills(registry.getAll()) }
+  );
   const state: StateFilter = argv.disabled ? "disabled" : argv.all ? "all" : "enabled";
   const skills = applyFilters(registry.getAll(), includes, excludes, state);
   const haystack = skills.map((skill) => `${skill.name} ${skill.description}`);
@@ -61,7 +73,9 @@ export async function searchCommand(argv: ArgumentsCamelCase<SearchArgs>): Promi
 
   const limit = argv.limit ?? 10;
   const limited = filtered.slice(0, limit);
-  console.log(`${colors.underline(colors.bold("Matches"))} (${limited.length}${filtered.length > limit ? ` of ${filtered.length}` : ""})\n`);
+  console.log(
+    `${colors.underline(colors.bold("Matches"))} (${limited.length}${filtered.length > limit ? ` of ${filtered.length}` : ""})\n`
+  );
   console.log(
     renderList(
       limited.map((skill) => {

@@ -2,7 +2,29 @@
  * Skill location types
  */
 export type SkillLocation = "user" | "project" | "plugin";
-export type SkillProvider = "claude" | "codex" | "file";
+
+export const BUILT_IN_SKILL_PROVIDERS = [
+  "agents",
+  "claude",
+  "codex",
+  "gemini",
+  "openclaw",
+  "file",
+] as const;
+
+export type BuiltInSkillProvider = (typeof BUILT_IN_SKILL_PROVIDERS)[number];
+export type SkillProvider = BuiltInSkillProvider | (string & {});
+
+export const SKILL_SOURCE_PRIORITIES = {
+  plugin: 0,
+  "user-shared": 100,
+  "user-agent": 200,
+  "workspace-shared": 300,
+  "workspace-agent": 400,
+  custom: 500,
+} as const;
+
+export type SkillSourceKind = keyof typeof SKILL_SOURCE_PRIORITIES;
 
 /**
  * Core skill metadata interface
@@ -14,10 +36,14 @@ export interface SkillMetadata {
   description: string;
   /** Whether the skill is disabled (.SKILL.md) */
   disabled?: boolean;
-  /** Provider (claude | codex | file/custom) */
+  /** Provider (built-in agent/shared provider or discovered dynamic provider) */
   provider: SkillProvider;
   /** Location type */
   location: SkillLocation;
+  /** Source priority used by auto deduplication; higher wins */
+  sourcePriority?: number;
+  /** Source class used to explain discovery precedence */
+  sourceKind?: SkillSourceKind;
   /** Absolute path to skill directory */
   path: string;
   /** Whether the skill has a references/ directory */
