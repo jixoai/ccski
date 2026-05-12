@@ -2,11 +2,14 @@ import type { Dirent } from "node:fs";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { CcskiDiagnostic } from "../types/diagnostics.js";
+import { diagnosticToWarning } from "../types/diagnostics.js";
 import type { Skill, SkillLocation, SkillMetadata, SkillProvider } from "../types/skill.js";
-import { colors } from "../utils/format.js";
 import { parseSkillFile } from "./parser.js";
 
-export function getDefaultSkillDirectories(userDir: string): ReadonlyArray<{ path: string; provider: SkillProvider }> {
+export function getDefaultSkillDirectories(
+  userDir: string
+): ReadonlyArray<{ path: string; provider: SkillProvider }> {
   return [
     { path: ".agent/skills", provider: "claude" }, // Project universal
     { path: ".claude/skills", provider: "claude" }, // Project Claude Code
@@ -22,6 +25,7 @@ export interface DiscoveryDiagnostics {
   warnings: string[];
   conflicts: string[];
   byProvider: Record<SkillProvider, number>;
+  events: CcskiDiagnostic[];
 }
 
 export interface DiscoveryResult {
@@ -65,6 +69,14 @@ function checkBundledResources(skillDir: string): {
     hasScripts: existsSync(join(skillDir, "scripts")),
     hasAssets: existsSync(join(skillDir, "assets")),
   };
+}
+
+function addDiscoveryDiagnostic(
+  diagnostics: DiscoveryDiagnostics,
+  diagnostic: CcskiDiagnostic
+): void {
+  diagnostics.events.push(diagnostic);
+  diagnostics.warnings.push(diagnosticToWarning(diagnostic));
 }
 
 /**
@@ -112,14 +124,13 @@ function collectSkillDirectories(
   try {
     entries = readdirSync(root, { withFileTypes: true }) as Array<Dirent<string>>;
   } catch (error) {
-    console.warn(
-      colors.yellow(
-        `Warning: Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`
-      )
-    );
-    diagnostics.warnings.push(
-      `Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`
-    );
+    addDiscoveryDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "discovery",
+      code: "failed-to-scan-directory",
+      message: `Failed to scan directory ${root}: ${error instanceof Error ? error.message : String(error)}`,
+      details: { directory: root },
+    });
     return;
   }
 
@@ -182,8 +193,7 @@ export function scanSkillDirectory(
       try {
         const parsed = parseSkillFile(candidate.path);
         const baseName = parsed.frontmatter.name;
-        const scopedName =
-          scope && !baseName.includes(":") ? `${scope}:${baseName}` : baseName;
+        const scopedName = scope && !baseName.includes(":") ? `${scope}:${baseName}` : baseName;
         const resources = checkBundledResources(skillDir);
         const skillLocation = location ?? determineLocation(skillDir, userDir);
 
@@ -198,14 +208,13 @@ export function scanSkillDirectory(
         });
         diagnostics.byProvider[provider] = (diagnostics.byProvider[provider] ?? 0) + 1;
       } catch (error) {
-        console.warn(
-          colors.yellow(
-            `Warning: Failed to parse ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`
-          )
-        );
-        diagnostics.warnings.push(
-          `Failed to parse ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        addDiscoveryDiagnostic(diagnostics, {
+          severity: "warning",
+          source: "discovery",
+          code: "failed-to-parse-skill",
+          message: `Failed to parse ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`,
+          details: { file: candidate.path },
+        });
       }
     }
   }
@@ -226,6 +235,7 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
       codex: 0,
       file: 0,
     },
+    events: [],
   };
 
   const userDir = options.userDir ? resolve(options.userDir) : homedir();
@@ -236,16 +246,18 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
     for (const entry of options.customDirs) {
       const provider = options.customProvider ?? "file";
       if (typeof entry === "string") {
+        const scope = provider === "file" ? "other" : undefined;
         directories.push({
           path: entry,
           provider,
-          scope: provider === "file" ? "other" : undefined,
+          ...(scope ? { scope } : {}),
         });
       } else {
+        const scope = entry.scope ?? (provider === "file" ? "other" : undefined);
         directories.push({
           path: entry.path,
           provider,
-          scope: entry.scope ?? (provider === "file" ? "other" : undefined),
+          ...(scope ? { scope } : {}),
         });
       }
     }

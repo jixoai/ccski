@@ -1,10 +1,17 @@
 import type { ArgumentsCamelCase } from "yargs";
-import type { SkillLocation } from "../../types/skill.js";
-import { colors, dim, duplicateBadge, renderList, setColorEnabled, tone } from "../../utils/format.js";
-import { computeDuplicateGroups } from "../../utils/filters.js";
-import { formatSkillLabel } from "../../utils/skill-id.js";
 import { listSkills } from "../../api/list.js";
 import type { ListOptions } from "../../api/types.js";
+import type { SkillLocation } from "../../types/skill.js";
+import { computeDuplicateGroups } from "../../utils/filters.js";
+import {
+  colors,
+  dim,
+  duplicateBadge,
+  renderList,
+  setColorEnabled,
+  tone,
+} from "../../utils/format.js";
+import { formatSkillLabel } from "../../utils/skill-id.js";
 
 export interface ListArgs extends ListOptions {
   format?: "plain" | "json";
@@ -75,7 +82,7 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
 
         return {
           ...base,
-          badge: badges.length ? badges.join(" ") : undefined,
+          ...(badges.length ? { badge: badges.join(" ") } : {}),
         };
       });
       sections.push(renderList(listItems));
@@ -87,11 +94,7 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
     return;
   }
 
-  const heading = argv.disabled
-    ? "Disabled skills"
-    : argv.all
-      ? "All skills"
-      : "Skills";
+  const heading = argv.disabled ? "Disabled skills" : argv.all ? "All skills" : "Skills";
 
   console.log(`${colors.bold(heading)} (${skills.length})\n` + sections.join("\n\n"));
 }

@@ -8,9 +8,9 @@ import {
   isSpaceKey,
   isUpKey,
   makeTheme,
+  useEffect,
   useKeypress,
   useMemo,
-  useEffect,
   usePagination,
   usePrefix,
   useState,
@@ -151,18 +151,26 @@ function buildPreview(
     if (selected.length <= maxShow) {
       formattedSelected = selected;
     } else {
-      formattedSelected = [...selected.slice(0, maxShow), `... (+${selected.length - maxShow} more)`];
+      formattedSelected = [
+        ...selected.slice(0, maxShow),
+        `... (+${selected.length - maxShow} more)`,
+      ];
     }
   }
 
-  const renderedArgs = [...staticArgs, ...formattedSelected].map((arg) => tone.primary(arg)).join(" ");
+  const renderedArgs = [...staticArgs, ...formattedSelected]
+    .map((arg) => tone.primary(arg))
+    .join(" ");
   const renderedBase = tone.bold(tone.accent(base));
   const suffix = renderedArgs.length ? ` ${renderedArgs}` : tone.muted(" <none>");
 
   return `${tone.info(`${label}:`)} ${renderedBase}${suffix}`;
 }
 
-const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { all?: string; invert?: string } }>((config, done) => {
+const promptImpl = createPrompt<
+  string[],
+  MultiSelectOptions & { shortcuts?: { all?: string; invert?: string } }
+>((config, done) => {
   const {
     instructions,
     pageSize,
@@ -301,7 +309,11 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
 
   const message = theme.style.message(config.message, status);
   const preview = buildPreview(
-    { command, commandBuilder: config.commandBuilder, commandArgKey: config.commandArgKey },
+    {
+      ...(command ? { command } : {}),
+      ...(config.commandBuilder ? { commandBuilder: config.commandBuilder } : {}),
+      ...(config.commandArgKey ? { commandArgKey: config.commandArgKey } : {}),
+    },
     items.filter(isChecked).map((c) => c.value)
   );
 
@@ -309,7 +321,9 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
   const usableRows = Math.max(1, termRows);
   const termCols = Math.max(40, termSize.cols - 4);
   const activeDescriptionRaw =
-    config.showActiveDescription && items[active]?.description ? items[active]?.description : undefined;
+    config.showActiveDescription && items[active]?.description
+      ? items[active]?.description
+      : undefined;
   const wrappedDescription =
     activeDescriptionRaw && activeDescriptionRaw.length > 0
       ? wrap(activeDescriptionRaw, { width: termCols, cut: false, trim: true })
@@ -317,7 +331,9 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
   const descriptionLineCount = wrappedDescription ? wrappedDescription.split("\n").length : 0;
 
   const wrappedPreview =
-    preview && preview.length > 0 ? wrap(preview, { width: termCols, cut: false, trim: true }) : undefined;
+    preview && preview.length > 0
+      ? wrap(preview, { width: termCols, cut: false, trim: true })
+      : undefined;
   const previewLineCount = wrappedPreview ? wrappedPreview.split("\n").length : 0;
 
   const helpLinesReserved = instructions === false ? 0 : 1;
@@ -348,7 +364,8 @@ const promptImpl = createPrompt<string[], MultiSelectOptions & { shortcuts?: { a
         const disabledLabel = typeof item.disabled === "string" ? item.disabled : "(disabled)";
         return theme.style.disabledChoice(`${item.name} ${disabledLabel}`);
       }
-      if (isActive && config.showActiveDescription) description = wrappedDescription ?? item.description;
+      if (isActive && config.showActiveDescription)
+        description = wrappedDescription ?? item.description;
 
       const checkbox = item.checked ? theme.icon.checked : theme.icon.unchecked;
       const name = item.checked ? item.checkedName : item.name;

@@ -1,14 +1,19 @@
-import { mkdtempSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { discoverSkills } from "../src/core/discovery.js";
 import { discoverPluginSkills } from "../src/core/plugins.js";
 import { SkillRegistry } from "../src/core/registry.js";
 import { applyFilters, parseFilters } from "../src/utils/filters.js";
 
-function createSkill(root: string, folder: string, name: string | undefined = undefined, description = "Test skill"): string {
+function createSkill(
+  root: string,
+  folder: string,
+  name: string | undefined = undefined,
+  description = "Test skill"
+): string {
   const skillDir = join(root, folder);
   mkdirSync(skillDir, { recursive: true });
   const skillName = name ?? folder;
@@ -101,7 +106,11 @@ describe("discoverSkills", () => {
     const result = discoverSkills({ userDir: fakeHome });
     expect(result.skills.find((s) => s.name === "alpha")).toBeDefined();
     expect(result.skills.find((s) => s.name === "alpha")?.location).toBe("user");
-    expect(result.diagnostics.scannedDirectories.some((d) => d.startsWith(join(fakeHome, ".claude/skills")))).toBe(true);
+    expect(
+      result.diagnostics.scannedDirectories.some((d) =>
+        d.startsWith(join(fakeHome, ".claude/skills"))
+      )
+    ).toBe(true);
   });
 
   it("prefixes skills from --skill-dir with default scope 'other'", () => {
@@ -210,7 +219,9 @@ describe("SkillRegistry", () => {
     expect(all).toHaveLength(2);
 
     const { includes, excludes } = parseFilters(["all"], undefined);
-    const filtered = applyFilters(registry.getAll(), includes, excludes, "all").filter((s) => s.name === "example:skill");
+    const filtered = applyFilters(registry.getAll(), includes, excludes, "all").filter(
+      (s) => s.name === "example:skill"
+    );
     expect(filtered).toHaveLength(2);
   });
 });
@@ -220,7 +231,15 @@ describe("discoverPluginSkills", () => {
     const root = mkdtempSync(join(tmpdir(), "ccski-plugins-v2-"));
 
     const enabledRoot = join(root, ".claude", "plugins", "cache", "marketplace-a", "example", "v1");
-    const disabledRoot = join(root, ".claude", "plugins", "cache", "marketplace-a", "blocked", "v1");
+    const disabledRoot = join(
+      root,
+      ".claude",
+      "plugins",
+      "cache",
+      "marketplace-a",
+      "blocked",
+      "v1"
+    );
     createSkill(join(enabledRoot, "skills"), "alpha", "alpha", "Example plugin skill");
     createSkill(join(disabledRoot, "skills"), "beta", "beta", "Blocked plugin skill");
 
@@ -273,5 +292,50 @@ describe("discoverPluginSkills", () => {
 
     expect(names).toContain("example:alpha");
     expect(names).not.toContain("blocked:beta");
+  });
+
+  it("normalizes Claude plugin manifest drift without console output", () => {
+    const root = mkdtempSync(join(tmpdir(), "ccski-plugins-drift-"));
+    const pluginRoot = join(root, ".claude", "plugins", "cache", "example", "v1");
+    createSkill(join(pluginRoot, "skills"), "alpha", "alpha", "Example plugin skill");
+
+    const pluginsFile = join(root, ".claude", "plugins", "installed_plugins.json");
+    mkdirSync(join(root, ".claude", "plugins"), { recursive: true });
+    writeFileSync(
+      pluginsFile,
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          "example@marketplace-a": [
+            {
+              installPath: pluginRoot,
+              version: "v1",
+            },
+            {
+              version: "broken",
+            },
+          ],
+        },
+      })
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const result = discoverPluginSkills({ userDir: root });
+      expect(result.skills.map((skill) => skill.name)).toContain("example:alpha");
+      expect(
+        result.diagnostics.events.some((event) => event.code === "missing-plugin-install-path")
+      ).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      infoSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

@@ -1,15 +1,15 @@
 import { existsSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { InteractiveCommandBuilder } from "../cli/prompts/commandBuilder.js";
+import { promptMultiSelect } from "../cli/prompts/multiSelect.js";
 import { SkillRegistry } from "../core/registry.js";
 import type { SkillMetadata } from "../types/skill.js";
-import { dim, heading, renderList, tone } from "../utils/format.js";
-import { formatSkillChoiceLabel, skillsToListItems } from "../utils/skill-render.js";
 import { applyFilters, parseFilters, type StateFilter } from "../utils/filters.js";
+import { dim, heading, renderList, tone } from "../utils/format.js";
+import { buildRegistryOptions } from "../utils/registry-options.js";
 import { resolveSelectors as resolveNamedSelectors } from "../utils/resolution.js";
 import { skillAliases } from "../utils/skill-id.js";
-import { buildRegistryOptions } from "../utils/registry-options.js";
-import { promptMultiSelect } from "../cli/prompts/multiSelect.js";
-import { InteractiveCommandBuilder } from "../cli/prompts/commandBuilder.js";
+import { formatSkillChoiceLabel, skillsToListItems } from "../utils/skill-render.js";
 import type { ToggleOptions, ToggleResultEntry, ToggleSummary } from "./types.js";
 
 export type ToggleMode = "enable" | "disable";
@@ -26,7 +26,10 @@ export async function toggleSkills(
   output: ToggleOutput = silentOutput
 ): Promise<ToggleSummary> {
   const registry = new SkillRegistry(buildRegistryOptions(options, { includeDisabled: true }));
-  const { includes, excludes } = parseFilters(options.include as string[] | undefined, options.exclude as string[] | undefined);
+  const { includes, excludes } = parseFilters(
+    options.include as string[] | undefined,
+    options.exclude as string[] | undefined
+  );
   const state: StateFilter = "all";
   const skills = applyFilters(registry.getAll(), includes, excludes, state);
 
@@ -49,7 +52,7 @@ export async function toggleSkills(
 
   const selected = await pickSkills(mode, candidates, options, cmdBuilder);
 
-  const conflicts = detectConflicts(mode, selected);
+  const conflicts = detectConflicts(selected);
 
   if (options.interactive && selected.length > 0 && !options.yes) {
     const confirmed = await confirmToggle(mode, cmdBuilder, selected, conflicts, force, output);
@@ -73,7 +76,10 @@ export async function toggleSkills(
 }
 
 export class MultiSelectError extends Error {
-  constructor(message: string, public listing: string) {
+  constructor(
+    message: string,
+    public listing: string
+  ) {
     super(message);
     this.name = "MultiSelectError";
   }
@@ -92,7 +98,7 @@ interface ConflictInfo {
   reason: string;
 }
 
-function detectConflicts(mode: ToggleMode, skills: SkillMetadata[]): ConflictInfo[] {
+function detectConflicts(skills: SkillMetadata[]): ConflictInfo[] {
   const conflicts: ConflictInfo[] = [];
   for (const skill of skills) {
     const skillFile = join(skill.path, "SKILL.md");
@@ -120,10 +126,20 @@ function executeToggle(mode: ToggleMode, skill: SkillMetadata, force: boolean): 
   try {
     if (mode === "disable") {
       if (!hasSkill && hasDisabled) {
-        return { skill: skill.name, path: skill.path, status: "skipped", error: "Already disabled" };
+        return {
+          skill: skill.name,
+          path: skill.path,
+          status: "skipped",
+          error: "Already disabled",
+        };
       }
       if (hasSkill && hasDisabled && !force) {
-        return { skill: skill.name, path: skill.path, status: "skipped", error: "Both files exist, use --force" };
+        return {
+          skill: skill.name,
+          path: skill.path,
+          status: "skipped",
+          error: "Both files exist, use --force",
+        };
       }
       if (hasDisabled && force) {
         rmSync(disabledFile);
@@ -138,7 +154,12 @@ function executeToggle(mode: ToggleMode, skill: SkillMetadata, force: boolean): 
       return { skill: skill.name, path: skill.path, status: "skipped", error: "Already enabled" };
     }
     if (hasSkill && hasDisabled && !force) {
-      return { skill: skill.name, path: skill.path, status: "skipped", error: "Both files exist, use --force" };
+      return {
+        skill: skill.name,
+        path: skill.path,
+        status: "skipped",
+        error: "Both files exist, use --force",
+      };
     }
     if (hasSkill && force) {
       rmSync(skillFile);
@@ -224,15 +245,19 @@ async function pickSkills(
       throw new MultiSelectError("Interactive mode requires a TTY.", listing);
     }
 
-    cmdBuilder.addArg("names", candidates.map((c) => c.name), {
-      positional: true,
-      totalChoices: candidates.length,
-      shortRender: (values, total) => {
-        if (total && values.length === total && values.length > 1) return ["--all"];
-        if (values.length <= 3) return values;
-        return [...values.slice(0, 3), `... (+${values.length - 3} more)`];
-      },
-    });
+    cmdBuilder.addArg(
+      "names",
+      candidates.map((c) => c.name),
+      {
+        positional: true,
+        totalChoices: candidates.length,
+        shortRender: (values, total) => {
+          if (total && values.length === total && values.length > 1) return ["--all"];
+          if (values.length <= 3) return values;
+          return [...values.slice(0, 3), `... (+${values.length - 3} more)`];
+        },
+      }
+    );
 
     const names = await promptMultiSelect({
       message: mode === "disable" ? "Select skills to disable" : "Select skills to enable",

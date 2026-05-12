@@ -1,10 +1,11 @@
+import debug from "debug";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import debug from "debug";
+import type { CcskiDiagnostic } from "../types/diagnostics.js";
+import { diagnosticToWarning } from "../types/diagnostics.js";
 import type { InstalledPlugins, PluginEntry, SkillMetadata } from "../types/index.js";
-import { ClaudeSettingsSchema, InstalledPluginsSchema } from "../types/schemas.js";
-import { colors } from "../utils/format.js";
+import { ClaudeSettingsSchema } from "../types/schemas.js";
 import { parseSkillFile } from "./parser.js";
 
 function defaultPluginsFile(userDir: string): string {
@@ -22,6 +23,7 @@ function defaultSettingsFile(userDir: string): string {
 export interface PluginDiscoveryDiagnostics {
   scannedPlugins: string[];
   warnings: string[];
+  events: CcskiDiagnostic[];
 }
 
 export interface PluginDiscoveryOptions {
@@ -44,6 +46,97 @@ function normalizePluginEntries(entry: PluginEntry | PluginEntry[]): PluginEntry
   return Array.isArray(entry) ? entry : [entry];
 }
 
+function addPluginDiagnostic(
+  diagnostics: PluginDiscoveryDiagnostics | undefined,
+  diagnostic: CcskiDiagnostic
+): void {
+  diagnostics?.events.push(diagnostic);
+  diagnostics?.warnings.push(diagnosticToWarning(diagnostic));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizePluginEntry(
+  pluginKey: string,
+  value: unknown,
+  index: number,
+  diagnostics?: PluginDiscoveryDiagnostics
+): PluginEntry | null {
+  if (!isRecord(value)) {
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "invalid-plugin-entry",
+      message: `Skipped plugin entry ${pluginKey}[${index}] because it is not an object.`,
+      details: { pluginKey, index },
+    });
+    return null;
+  }
+
+  const installPath = readString(value.installPath);
+  if (!installPath) {
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "missing-plugin-install-path",
+      message: `Skipped plugin entry ${pluginKey}[${index}] because installPath is missing.`,
+      details: { pluginKey, index },
+    });
+    return null;
+  }
+
+  return {
+    version: readString(value.version) ?? "unknown",
+    installedAt: readString(value.installedAt) ?? "",
+    lastUpdated: readString(value.lastUpdated) ?? "",
+    installPath,
+    gitCommitSha: readString(value.gitCommitSha) ?? "",
+    isLocal: typeof value.isLocal === "boolean" ? value.isLocal : false,
+    ...(typeof value.scope === "string" ? { scope: value.scope } : {}),
+  };
+}
+
+function normalizeInstalledPlugins(
+  json: unknown,
+  diagnostics?: PluginDiscoveryDiagnostics
+): InstalledPlugins | null {
+  if (!isRecord(json) || !isRecord(json.plugins)) {
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "invalid-installed-plugins",
+      message: "installed_plugins.json does not contain a valid plugins object.",
+    });
+    return null;
+  }
+
+  const plugins: InstalledPlugins["plugins"] = {};
+
+  for (const [pluginKey, rawEntry] of Object.entries(json.plugins)) {
+    const rawEntries = Array.isArray(rawEntry) ? rawEntry : [rawEntry];
+    const entries = rawEntries
+      .map((entry, index) => normalizePluginEntry(pluginKey, entry, index, diagnostics))
+      .filter((entry): entry is PluginEntry => entry !== null);
+
+    if (entries.length === 1) {
+      plugins[pluginKey] = entries[0]!;
+    } else if (entries.length > 1) {
+      plugins[pluginKey] = entries;
+    }
+  }
+
+  return {
+    version: typeof json.version === "number" ? json.version : 0,
+    plugins,
+  };
+}
+
 function loadClaudeSettings(
   settingsFile: string,
   diagnostics?: PluginDiscoveryDiagnostics
@@ -59,22 +152,32 @@ function loadClaudeSettings(
     const validation = ClaudeSettingsSchema.safeParse(json);
 
     if (!validation.success) {
-      console.warn(colors.yellow(`Warning: Invalid settings.json format:`), validation.error);
-      diagnostics?.warnings.push("Invalid settings.json format");
+      addPluginDiagnostic(diagnostics, {
+        severity: "warning",
+        source: "plugin",
+        code: "invalid-claude-settings",
+        message: "Invalid settings.json format.",
+        details: { file: settingsFile, issues: validation.error.issues },
+      });
       return null;
     }
 
-    return validation.data;
+    return validation.data as { enabledPlugins?: Record<string, boolean> };
   } catch (error) {
-    console.warn(colors.yellow(`Warning: Failed to load settings.json:`), error);
-    diagnostics?.warnings.push(
-      `Failed to load settings.json: ${error instanceof Error ? error.message : String(error)}`
-    );
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "failed-to-load-claude-settings",
+      message: `Failed to load settings.json: ${error instanceof Error ? error.message : String(error)}`,
+      details: { file: settingsFile },
+    });
     return null;
   }
 }
 
-function resolveEnabledPlugins(settings: { enabledPlugins?: Record<string, boolean> } | null): Set<string> | null {
+function resolveEnabledPlugins(
+  settings: { enabledPlugins?: Record<string, boolean> } | null
+): Set<string> | null {
   const enabledPlugins = settings?.enabledPlugins;
   if (!enabledPlugins) return null;
   const enabled = Object.entries(enabledPlugins)
@@ -91,31 +194,28 @@ export function loadInstalledPlugins(
   diagnostics?: PluginDiscoveryDiagnostics
 ): InstalledPlugins | null {
   if (!existsSync(pluginsFile)) {
-    console.info(`[ccski] No plugin marketplace skills found at ${pluginsFile}`);
-    diagnostics?.warnings.push(`Plugins file not found at ${pluginsFile}`);
+    addPluginDiagnostic(diagnostics, {
+      severity: "info",
+      source: "plugin",
+      code: "plugins-file-not-found",
+      message: `Plugins file not found at ${pluginsFile}`,
+      details: { file: pluginsFile },
+    });
     return null;
   }
 
   try {
     const content = readFileSync(pluginsFile, "utf-8");
     const json = JSON.parse(content);
-    const validation = InstalledPluginsSchema.safeParse(json);
-
-    if (!validation.success) {
-      console.warn(
-        colors.yellow(`Warning: Invalid installed_plugins.json format:`),
-        validation.error
-      );
-      diagnostics?.warnings.push("Invalid installed_plugins.json format");
-      return null;
-    }
-
-    return validation.data;
+    return normalizeInstalledPlugins(json, diagnostics);
   } catch (error) {
-    console.warn(colors.yellow(`Warning: Failed to load installed_plugins.json:`), error);
-    diagnostics?.warnings.push(
-      `Failed to load installed_plugins.json: ${error instanceof Error ? error.message : String(error)}`
-    );
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "failed-to-load-installed-plugins",
+      message: `Failed to load installed_plugins.json: ${error instanceof Error ? error.message : String(error)}`,
+      details: { file: pluginsFile },
+    });
     return null;
   }
 }
@@ -144,10 +244,13 @@ function findSkillFiles(dir: string, diagnostics: PluginDiscoveryDiagnostics): s
       }
     }
   } catch (error) {
-    console.warn(colors.yellow(`Warning: Failed to scan plugin directory ${dir}:`), error);
-    diagnostics.warnings.push(
-      `Failed to scan plugin directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
-    );
+    addPluginDiagnostic(diagnostics, {
+      severity: "warning",
+      source: "plugin",
+      code: "failed-to-scan-plugin-directory",
+      message: `Failed to scan plugin directory ${dir}: ${error instanceof Error ? error.message : String(error)}`,
+      details: { directory: dir },
+    });
   }
 
   return skillFiles;
@@ -161,6 +264,7 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
   const diagnostics: PluginDiscoveryDiagnostics = {
     scannedPlugins: [],
     warnings: [],
+    events: [],
   };
 
   const userDir = options.userDir ? resolve(options.userDir) : homedir();
@@ -200,10 +304,22 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
 
         if (!skillFiles.length) {
           if (!existsSync(installPath)) {
-            diagnostics.warnings.push(`Plugin install path not found: ${installPath}`);
+            addPluginDiagnostic(diagnostics, {
+              severity: "warning",
+              source: "plugin",
+              code: "plugin-install-path-not-found",
+              message: `Plugin install path not found: ${installPath}`,
+              details: { installPath, pluginKey },
+            });
             log("missing installPath: %s", installPath);
           } else {
-            diagnostics.warnings.push(`No skills found in plugin install path: ${installPath}`);
+            addPluginDiagnostic(diagnostics, {
+              severity: "info",
+              source: "plugin",
+              code: "no-skills-in-plugin-install-path",
+              message: `No skills found in plugin install path: ${installPath}`,
+              details: { installPath, pluginKey },
+            });
             log("empty installPath: %s", installPath);
           }
           missingOrEmpty = true;
@@ -242,10 +358,13 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
             });
             seenPaths.add(skillDir);
           } catch (error) {
-            console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
-            diagnostics.warnings.push(
-              `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
-            );
+            addPluginDiagnostic(diagnostics, {
+              severity: "warning",
+              source: "plugin",
+              code: "failed-to-parse-plugin-skill",
+              message: `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`,
+              details: { file: skillFile },
+            });
           }
         }
       }
@@ -302,10 +421,13 @@ export function discoverPluginSkills(options: PluginDiscoveryOptions = {}): Plug
         seenPaths.add(skillDir);
         log("fallback skill added %s (%s)", namespaced, skillDir);
       } catch (error) {
-        console.warn(colors.yellow(`Warning: Failed to parse plugin skill ${skillFile}:`), error);
-        diagnostics.warnings.push(
-          `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        addPluginDiagnostic(diagnostics, {
+          severity: "warning",
+          source: "plugin",
+          code: "failed-to-parse-plugin-skill",
+          message: `Failed to parse plugin skill ${skillFile}: ${error instanceof Error ? error.message : String(error)}`,
+          details: { file: skillFile },
+        });
       }
     }
   }

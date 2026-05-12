@@ -1,17 +1,26 @@
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { InteractiveCommandBuilder, skillsShortRender } from "../cli/prompts/commandBuilder.js";
+import {
+  Choice,
+  promptMultiSelect,
+  promptMultiSelect as promptMultiSelectTargets,
+} from "../cli/prompts/multiSelect.js";
 import { parseSkillFile } from "../core/parser.js";
+import { parseFilters } from "../utils/filters.js";
 import { dim, heading, info, renderList, tone } from "../utils/format.js";
 import { parseGitUrl } from "../utils/git-url-parser.js";
 import { rankStrings } from "../utils/search.js";
-import { parseFilters } from "../utils/filters.js";
-import { Choice, promptMultiSelect } from "../cli/prompts/multiSelect.js";
-import { promptMultiSelect as promptMultiSelectTargets } from "../cli/prompts/multiSelect.js";
-import { InteractiveCommandBuilder, skillsShortRender } from "../cli/prompts/commandBuilder.js";
 import { formatSkillChoiceLabel } from "../utils/skill-render.js";
-import type { InstallOptions, InstallResult, InstallResultEntry, InstallSummary, InstallPreview } from "./types.js";
+import type {
+  InstallOptions,
+  InstallPreview,
+  InstallResult,
+  InstallResultEntry,
+  InstallSummary,
+} from "./types.js";
 
 const GIT_CLONE_TIMEOUT_MS = 120_000; // 2 minutes
 const tempDirs: string[] = []; // Track temp dirs for cleanup
@@ -188,7 +197,9 @@ async function gitCloneWithTimeout(
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`Git clone timed out after ${timeoutMs / 1000}s. Check your network connection.`));
+      reject(
+        new Error(`Git clone timed out after ${timeoutMs / 1000}s. Check your network connection.`)
+      );
     }, timeoutMs);
 
     child.on("error", (err) => {
@@ -206,10 +217,14 @@ async function gitCloneWithTimeout(
       } else {
         let message = `Git clone failed (exit code ${code})`;
         if (stderr.includes("Could not resolve host") || stderr.includes("unable to access")) {
-          message = "Network error: Could not connect to repository. Check your internet connection.";
+          message =
+            "Network error: Could not connect to repository. Check your internet connection.";
         } else if (stderr.includes("not found") || stderr.includes("does not exist")) {
           message = `Repository not found: ${repo}`;
-        } else if (stderr.includes("Authentication failed") || stderr.includes("Permission denied")) {
+        } else if (
+          stderr.includes("Authentication failed") ||
+          stderr.includes("Permission denied")
+        ) {
           message = "Authentication failed. Check your credentials or repository access.";
         } else if (stderr.includes("Remote branch") && stderr.includes("not found")) {
           message = `Branch '${branch}' not found in repository.`;
@@ -236,7 +251,11 @@ interface InternalInstallResult {
   status: "installed" | "skipped" | "overwritten";
 }
 
-export function installSkillDir(skillDir: string, targetRoot: string, force = false): InternalInstallResult {
+export function installSkillDir(
+  skillDir: string,
+  targetRoot: string,
+  force = false
+): InternalInstallResult {
   const skillFile = join(skillDir, "SKILL.md");
   if (!existsSync(skillFile)) {
     throw new Error(`No SKILL.md found in ${skillDir}`);
@@ -304,8 +323,8 @@ interface SourceArgs {
 function buildSourceArgs(input: string, branch?: string, path?: string, repo?: string): SourceArgs {
   return {
     source: repo ?? input,
-    branch,
-    path,
+    ...(branch ? { branch } : {}),
+    ...(path ? { path } : {}),
   };
 }
 
@@ -332,7 +351,9 @@ async function materializeSource(
 
   if (mode === "file") {
     if (source.startsWith("http://") || source.startsWith("https://")) {
-      throw new Error("mode=file requires a local path; http(s) sources must use --mode git (default).");
+      throw new Error(
+        "mode=file requires a local path; http(s) sources must use --mode git (default)."
+      );
     }
     const base = normalizeSourcePath(source);
     return { base, label: formatSourceLabel(source, undefined, undefined), mode };
@@ -359,7 +380,13 @@ async function materializeSource(
     output.log(info(`Cloning to ${cloneDir}...`));
 
     try {
-      await gitCloneWithTimeout(repo, cloneDir, branch, options.timeout ?? GIT_CLONE_TIMEOUT_MS, output);
+      await gitCloneWithTimeout(
+        repo,
+        cloneDir,
+        branch,
+        options.timeout ?? GIT_CLONE_TIMEOUT_MS,
+        output
+      );
     } catch (err) {
       try {
         rmSync(cloneDir, { recursive: true, force: true });
@@ -497,11 +524,15 @@ async function promptSelectSkills(
   cmdBuilder: InteractiveCommandBuilder,
   totalSkills: number
 ): Promise<SkillEntry[]> {
-  cmdBuilder.addArg("skills", entries.map((e) => e.name), {
-    shortRender: skillsShortRender,
-    totalChoices: totalSkills,
-    positional: true,
-  });
+  cmdBuilder.addArg(
+    "skills",
+    entries.map((e) => e.name),
+    {
+      shortRender: skillsShortRender,
+      totalChoices: totalSkills,
+      positional: true,
+    }
+  );
 
   const pickedNames = await promptMultiSelect({
     message: "Select skills to install",
@@ -618,7 +649,11 @@ function formatSkillListing(entries: SkillEntry[], label: string): string {
   );
 }
 
-function filterTargetsByIncludeExclude(targets: string[], include?: string[], exclude?: string[]): string[] {
+function filterTargetsByIncludeExclude(
+  targets: string[],
+  include?: string[],
+  exclude?: string[]
+): string[] {
   const annotated = targets.map((dir) => {
     const parsed = parseSkillFile(join(dir, "SKILL.md"));
     return { dir, name: parsed.frontmatter.name };
@@ -668,10 +703,10 @@ async function resolveDestinations(
   }
 
   const scopeMap: Record<string, string> = {
-    "claude": join(process.cwd(), ".claude/skills"),
+    claude: join(process.cwd(), ".claude/skills"),
     "claude:@project": join(process.cwd(), ".claude/skills"),
     "claude:@user": join(userDir, ".claude/skills"),
-    "codex": join(userDir, ".codex/skills"),
+    codex: join(userDir, ".codex/skills"),
     "codex:@user": join(userDir, ".codex/skills"),
   };
 
@@ -683,7 +718,10 @@ async function resolveDestinations(
         );
       }
       const mapped = scopeMap[scope];
-      if (!mapped) throw new Error(`Invalid out-scope: ${scope}. Valid values: ${Object.keys(scopeMap).join(", ")}`);
+      if (!mapped)
+        throw new Error(
+          `Invalid out-scope: ${scope}. Valid values: ${Object.keys(scopeMap).join(", ")}`
+        );
       dests.push(mapped);
     }
   }
@@ -726,7 +764,7 @@ async function resolveDestinations(
     message: "Select destination(s)",
     choices,
     defaultChecked: false,
-    commandBuilder: cmdBuilder,
+    ...(cmdBuilder ? { commandBuilder: cmdBuilder } : {}),
     commandArgKey: "out-dir",
   });
 
@@ -748,7 +786,10 @@ function buildPreview(selection: SkillEntry[], destinations: string[]): InstallP
   };
 }
 
-export async function installSkills(options: InstallOptions, output: InstallOutput = silentOutput): Promise<InstallResult> {
+export async function installSkills(
+  options: InstallOptions,
+  output: InstallOutput = silentOutput
+): Promise<InstallResult> {
   try {
     const parsed = parseGitUrl(options.source);
     const resolvedSource = parsed?.repo ?? options.source;
@@ -787,11 +828,17 @@ export async function installSkills(options: InstallOptions, output: InstallOutp
     const targets = resolveInstallTargets(materialized.base, explicitPath, sourceLabel);
 
     if (targets.length === 0) {
-      throw new Error(`No skills found for ${sourceLabel}. Resolved directory: ${materialized.base}`);
+      throw new Error(
+        `No skills found for ${sourceLabel}. Resolved directory: ${materialized.base}`
+      );
     }
 
     const force = options.force === true || options.override === true;
-    const filteredTargets = filterTargetsByIncludeExclude(targets, options.include, options.exclude);
+    const filteredTargets = filterTargetsByIncludeExclude(
+      targets,
+      options.include,
+      options.exclude
+    );
     const { selection, totalSkills } = await selectSkills(filteredTargets, options, cmdBuilder);
 
     if (options.dryRun) {
@@ -799,11 +846,15 @@ export async function installSkills(options: InstallOptions, output: InstallOutp
     }
 
     if (options.interactive && selection.length > 0 && !options.yes) {
-      cmdBuilder.addArg("skills", selection.map((s) => s.name), {
-        shortRender: skillsShortRender,
-        totalChoices: totalSkills,
-        positional: true,
-      });
+      cmdBuilder.addArg(
+        "skills",
+        selection.map((s) => s.name),
+        {
+          shortRender: skillsShortRender,
+          totalChoices: totalSkills,
+          positional: true,
+        }
+      );
 
       const conflicts: Array<{ skill: string; destination: string }> = [];
       for (const dest of destinations) {
@@ -819,7 +870,7 @@ export async function installSkills(options: InstallOptions, output: InstallOutp
       const confirmed = await cmdBuilder.confirm({
         skills: selection,
         destinations,
-        conflicts: conflicts.length > 0 ? conflicts : undefined,
+        ...(conflicts.length > 0 ? { conflicts } : {}),
         force,
       });
       if (!confirmed) {

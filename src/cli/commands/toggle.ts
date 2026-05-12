@@ -1,9 +1,14 @@
 import type { ArgumentsCamelCase } from "yargs";
 
-import { dim, error, setColorEnabled, tone, warn } from "../../utils/format.js";
-import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
-import { toggleSkills, ToggleCancelledError, MultiSelectError, type ToggleMode } from "../../api/toggle.js";
+import {
+  MultiSelectError,
+  ToggleCancelledError,
+  toggleSkills,
+  type ToggleMode,
+} from "../../api/toggle.js";
 import type { ToggleOptions, ToggleSummary } from "../../api/types.js";
+import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
+import { dim, error, setColorEnabled, tone, warn } from "../../utils/format.js";
 
 export interface ToggleArgs extends ToggleOptions {
   noColor?: boolean;
@@ -19,7 +24,10 @@ export async function disableCommand(argv: ArgumentsCamelCase<ToggleArgs>): Prom
   await toggleCommand("disable", argv);
 }
 
-async function toggleCommand(mode: ToggleMode, argv: ArgumentsCamelCase<ToggleArgs>): Promise<void> {
+async function toggleCommand(
+  mode: ToggleMode,
+  argv: ArgumentsCamelCase<ToggleArgs>
+): Promise<void> {
   if (argv.noColor || process.env.FORCE_COLOR === "0") setColorEnabled(false);
   if (argv.color) setColorEnabled(true);
 
@@ -82,7 +90,9 @@ async function toggleCommand(mode: ToggleMode, argv: ArgumentsCamelCase<ToggleAr
       return;
     }
     if (argv.json) {
-      console.log(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2));
+      console.log(
+        JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2)
+      );
     } else {
       console.error(error(err instanceof Error ? err.message : String(err)));
     }
@@ -105,7 +115,7 @@ function printToggleSummary(summary: ToggleSummary): void {
         status = dim(`○ skipped${r.error ? `: ${r.error}` : ""}`);
         break;
       case "failed":
-        status = tone.error(`✗ failed${r.error ? `: ${r.error}` : ""}`);
+        status = tone.danger(`✗ failed${r.error ? `: ${r.error}` : ""}`);
         break;
     }
     console.log(`${tone.bold(r.skill)}: ${status}`);
@@ -115,7 +125,7 @@ function printToggleSummary(summary: ToggleSummary): void {
   const parts: string[] = [];
   if (succeeded > 0) parts.push(tone.success(`${succeeded} ${successStatus}`));
   if (skipped > 0) parts.push(dim(`${skipped} skipped`));
-  if (failed > 0) parts.push(tone.error(`${failed} failed`));
+  if (failed > 0) parts.push(tone.danger(`${failed} failed`));
 
   if (parts.length === 0) {
     console.log(warn("No skills were processed."));

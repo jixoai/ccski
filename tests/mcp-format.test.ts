@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { SkillRegistry } from "../src/core/registry.js";
 import { buildSkillDescription, formatSkillContent } from "../src/mcp/server.js";
 import type { Skill, SkillProvider } from "../src/types/skill.js";
-import type { SkillRegistry } from "../src/core/registry.js";
 
 const baseSkill: Skill = {
   name: "demo",
@@ -55,6 +55,7 @@ describe("MCP formatting helpers", () => {
         pluginSources: [],
         warnings: [],
         conflicts: [],
+        events: [],
       }),
     } as unknown as SkillRegistry;
 

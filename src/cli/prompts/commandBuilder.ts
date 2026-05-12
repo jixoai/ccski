@@ -1,5 +1,5 @@
-import { tone, heading, dim, warn, success } from "../../utils/format.js";
 import { existsSync } from "node:fs";
+import { dim, heading, tone } from "../../utils/format.js";
 
 export interface ArgConfig {
   /** Argument values */
@@ -47,9 +47,9 @@ export class InteractiveCommandBuilder {
     if (arr.length === 0) return this;
     this.args.set(key, {
       values: arr,
-      shortRender: options?.shortRender,
-      totalChoices: options?.totalChoices,
-      positional: options?.positional,
+      ...(options?.shortRender ? { shortRender: options.shortRender } : {}),
+      ...(options?.totalChoices !== undefined ? { totalChoices: options.totalChoices } : {}),
+      ...(options?.positional !== undefined ? { positional: options.positional } : {}),
     });
     return this;
   }
@@ -93,7 +93,11 @@ export class InteractiveCommandBuilder {
 
     for (const [key, config] of this.args) {
       // For full build, check if we should use --all
-      if (config.totalChoices && config.values.length === config.totalChoices && config.values.length > 1) {
+      if (
+        config.totalChoices &&
+        config.values.length === config.totalChoices &&
+        config.values.length > 1
+      ) {
         parts.push("--all");
       } else if (config.positional) {
         // Positional args: just add values without --key=
@@ -120,7 +124,11 @@ export class InteractiveCommandBuilder {
       if (config.shortRender) {
         const rendered = config.shortRender(config.values, config.totalChoices);
         parts.push(...rendered);
-      } else if (config.totalChoices && config.values.length === config.totalChoices && config.values.length > 1) {
+      } else if (
+        config.totalChoices &&
+        config.values.length === config.totalChoices &&
+        config.values.length > 1
+      ) {
         // All selected, use --all
         parts.push("--all");
       } else if (config.positional) {

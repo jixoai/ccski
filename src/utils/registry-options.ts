@@ -16,7 +16,7 @@ function parseSkillDir(value: string): { path: string; scope?: string } {
   const [rawPath, query] = value.split("?");
   const params = new URLSearchParams(query);
   const scope = params.get("scope") ?? undefined;
-  return { path: rawPath, scope };
+  return { path: rawPath, ...(scope ? { scope } : {}) };
 }
 
 export function buildRegistryOptions(

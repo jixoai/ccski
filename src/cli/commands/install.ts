@@ -1,13 +1,18 @@
 import type { ArgumentsCamelCase } from "yargs";
-import { dim, error, heading, info, renderList, setColorEnabled, tone, warn } from "../../utils/format.js";
 import {
   createConsoleInstallOutput,
-  installSkills,
   InstallCancelledError,
+  installSkills,
   MultiSkillSelectionError,
   registerInstallCleanupHandlers,
 } from "../../api/install.js";
-import type { InstallOptions, InstallPreview, InstallResult, InstallSummary } from "../../api/types.js";
+import type {
+  InstallOptions,
+  InstallPreview,
+  InstallResult,
+  InstallSummary,
+} from "../../api/types.js";
+import { dim, error, heading, info, setColorEnabled, tone, warn } from "../../utils/format.js";
 
 export interface InstallArgs extends InstallOptions {
   noColor?: boolean;
@@ -26,22 +31,22 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
   const options: InstallOptions = {
     source: argv.source,
     skills,
-    force: argv.force,
-    override: argv.override,
-    path: argv.path,
-    mode: argv.mode,
-    branch: argv.branch,
-    interactive: argv.interactive,
-    all: argv.all,
-    disabled: argv.disabled,
-    include: argv.include as string[] | undefined,
-    exclude: argv.exclude as string[] | undefined,
-    outDir: argv.outDir as string[] | undefined,
-    outScope: argv.outScope as string[] | undefined,
-    userDir: argv.userDir,
-    dryRun: argv.dryRun,
-    timeout: argv.timeout,
-    yes: argv.yes,
+    ...(argv.force !== undefined ? { force: argv.force } : {}),
+    ...(argv.override !== undefined ? { override: argv.override } : {}),
+    ...(argv.path !== undefined ? { path: argv.path } : {}),
+    ...(argv.mode !== undefined ? { mode: argv.mode } : {}),
+    ...(argv.branch !== undefined ? { branch: argv.branch } : {}),
+    ...(argv.interactive !== undefined ? { interactive: argv.interactive } : {}),
+    ...(argv.all !== undefined ? { all: argv.all } : {}),
+    ...(argv.disabled !== undefined ? { disabled: argv.disabled } : {}),
+    ...(argv.include !== undefined ? { include: argv.include as string[] } : {}),
+    ...(argv.exclude !== undefined ? { exclude: argv.exclude as string[] } : {}),
+    ...(argv.outDir !== undefined ? { outDir: argv.outDir as string[] } : {}),
+    ...(argv.outScope !== undefined ? { outScope: argv.outScope as string[] } : {}),
+    ...(argv.userDir !== undefined ? { userDir: argv.userDir } : {}),
+    ...(argv.dryRun !== undefined ? { dryRun: argv.dryRun } : {}),
+    ...(argv.timeout !== undefined ? { timeout: argv.timeout } : {}),
+    ...(argv.yes !== undefined ? { yes: argv.yes } : {}),
   };
 
   try {
@@ -130,7 +135,7 @@ function printInstallSummary(summary: InstallSummary): void {
         case "skipped":
           return dim(`○ ${destName}`);
         case "failed":
-          return tone.error(`✗ ${destName}`);
+          return tone.danger(`✗ ${destName}`);
       }
     });
     console.log(`${tone.bold(skill)}: ${statuses.join(", ")}`);
@@ -141,7 +146,7 @@ function printInstallSummary(summary: InstallSummary): void {
   if (installed > 0) parts.push(tone.success(`${installed} installed`));
   if (overwritten > 0) parts.push(tone.warning(`${overwritten} overwritten`));
   if (skipped > 0) parts.push(dim(`${skipped} skipped`));
-  if (failed > 0) parts.push(tone.error(`${failed} failed`));
+  if (failed > 0) parts.push(tone.danger(`${failed} failed`));
 
   if (parts.length === 0) {
     console.log(warn("No skills were processed."));
