@@ -16,4 +16,4 @@
 
 - [x] 3.1 Add tests for root ordering, dynamic providers, and auto dedup priority.
 - [x] 3.2 Run typecheck, tests, build, OpenSpec validation, and CLI JSON sanity checks.
-- [ ] 3.3 Archive the change and validate all specs.
+- [x] 3.3 Archive the change and validate all specs.
