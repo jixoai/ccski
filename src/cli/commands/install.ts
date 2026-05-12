@@ -7,17 +7,24 @@ import {
   registerInstallCleanupHandlers,
 } from "../../api/install.js";
 import type {
+  AgentInstructionScope,
   InstallOptions,
   InstallPreview,
   InstallResult,
   InstallSummary,
 } from "../../api/types.js";
 import { dim, error, heading, info, setColorEnabled, tone, warn } from "../../utils/format.js";
+import { installWorkflowCommand } from "./install-workflow.js";
 
 export interface InstallArgs extends InstallOptions {
   noColor?: boolean;
   color?: boolean;
   json?: boolean;
+  agents?: string[];
+  agent?: string[];
+  scope?: AgentInstructionScope;
+  project?: boolean;
+  user?: boolean;
 }
 
 export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Promise<void> {
@@ -27,9 +34,15 @@ export async function installCommand(argv: ArgumentsCamelCase<InstallArgs>): Pro
   registerInstallCleanupHandlers();
 
   const skills = Array.isArray(argv._) ? argv._.slice(1).map(String) : [];
+  const source = typeof argv.source === "string" ? argv.source : skills.shift();
+
+  if (!source) {
+    await installWorkflowCommand(argv);
+    return;
+  }
 
   const options: InstallOptions = {
-    source: argv.source,
+    source,
     skills,
     ...(argv.force !== undefined ? { force: argv.force } : {}),
     ...(argv.override !== undefined ? { override: argv.override } : {}),

@@ -120,6 +120,30 @@ The CLI SHALL list discovered skills using the shared registry, keep ordinary co
 - WHEN running `ccski install <source>` without selectors
 - THEN the command errors and prints a selectable listing instead of installing.
 
+### Requirement: Install workflow instructions
+
+- `ccski install` with no `<source>` SHALL install an English `<workflow name="ccski">...</workflow>` block into supported agent instruction files.
+- The default scope SHALL be `user`; `--project` or `--scope=project` SHALL target only the current project directory.
+- Supported targets SHALL include Codex (`AGENTS.md`), Claude Code (`CLAUDE.md`), Gemini CLI (`GEMINI.md`), and OpenCode (`AGENTS.md`), with user-scope files resolved under the effective `--user-dir`.
+- `--agent <name>` SHALL limit installation to one or more targets; omitting it SHALL install all known targets.
+- Installation SHALL be idempotent: an existing `<workflow name="ccski">` block is replaced, unrelated prompt content is preserved, and a second run reports unchanged.
+
+#### Scenario: user workflow install
+
+- WHEN running `ccski install --agent=codex --user-dir=/tmp/home`
+- THEN the CLI writes the ccski workflow block to `/tmp/home/.codex/AGENTS.md`.
+
+#### Scenario: project workflow install
+
+- WHEN running `ccski install --agent=gemini --project` from `/repo`
+- THEN the CLI writes the ccski workflow block to `/repo/GEMINI.md`.
+
+#### Scenario: idempotent workflow update
+
+- GIVEN a prompt file already contains `<workflow name="ccski">old</workflow>`
+- WHEN running `ccski install --agent=codex`
+- THEN the existing ccski workflow block is replaced rather than duplicated.
+
 ### Requirement: Enable and disable skills
 
 - `ccski disable` MUST rename `SKILL.md` to `.SKILL.md`; `ccski enable` MUST perform the inverse, respecting `--force/--override` when both files exist.

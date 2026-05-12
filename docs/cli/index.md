@@ -21,16 +21,17 @@ ccski --help
 
 ## Commands
 
-| Command | Purpose | Docs |
-| --- | --- | --- |
-| `ccski list` | List discovered skills (project/user/plugin) | [List](/cli/list) |
-| `ccski info <name>` | Show metadata and content preview | [Info](/cli/info) |
-| `ccski search <query>` | Search by name/description (optional `--content`) | [Search](/cli/search) |
-| `ccski validate <path>` | Validate a SKILL.md or skill directory | [Validate](/cli/validate) |
-| `ccski install <source>` | Install from git/dir/marketplace/SKILL.md | [Install](/cli/install) |
-| `ccski enable [names...]` | Enable skills (`.SKILL.md` -> `SKILL.md`) | [Enable/Disable](/cli/toggle) |
-| `ccski disable [names...]` | Disable skills (`SKILL.md` -> `.SKILL.md`) | [Enable/Disable](/cli/toggle) |
-| `ccski mcp` | Start MCP server (stdio/http/sse) | [MCP](/cli/mcp) |
+| Command                    | Purpose                                                     | Docs                          |
+| -------------------------- | ----------------------------------------------------------- | ----------------------------- |
+| `ccski list`               | List discovered skills (project/user/plugin)                | [List](/cli/list)             |
+| `ccski info <name>`        | Show metadata and content preview                           | [Info](/cli/info)             |
+| `ccski search <query>`     | Search by name/description (optional `--content`)           | [Search](/cli/search)         |
+| `ccski validate <path>`    | Validate a SKILL.md or skill directory                      | [Validate](/cli/validate)     |
+| `ccski install`            | Install ccski workflow instructions into agent prompt files | [Install](/cli/install)       |
+| `ccski install <source>`   | Install from git/dir/marketplace/SKILL.md                   | [Install](/cli/install)       |
+| `ccski enable [names...]`  | Enable skills (`.SKILL.md` -> `SKILL.md`)                   | [Enable/Disable](/cli/toggle) |
+| `ccski disable [names...]` | Disable skills (`SKILL.md` -> `.SKILL.md`)                  | [Enable/Disable](/cli/toggle) |
+| `ccski mcp`                | Start MCP server (stdio/http/sse)                           | [MCP](/cli/mcp)               |
 
 ## Common examples
 
@@ -55,6 +56,9 @@ ccski install https://github.com/wshobson/agents
 
 # Install with explicit path
 ccski install https://github.com/wshobson/agents --path skills/foo/SKILL.md
+
+# Install the ccski workflow into user agent prompts
+npx -y ccski install
 ```
 
 ## MCP server

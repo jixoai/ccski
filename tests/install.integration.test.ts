@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installCommand } from "../src/cli/commands/install.js";
@@ -33,8 +33,8 @@ function createRepoWithMarketplace(): string {
   const repoRoot = mkdtempSync(join(tmpdir(), "ccski-install-repo-"));
   const skillsRoot = repoRoot;
 
-  const alg = createSkill(skillsRoot, "algorithmic-art", "algo art");
-  const canvas = createSkill(skillsRoot, "canvas-design", "canvas");
+  createSkill(skillsRoot, "algorithmic-art", "algo art");
+  createSkill(skillsRoot, "canvas-design", "canvas");
 
   const pluginDir = join(repoRoot, ".claude-plugin");
   mkdirSync(pluginDir, { recursive: true });
@@ -65,7 +65,7 @@ function createRepoWithPluginScopedSkills(): string {
   const repoRoot = mkdtempSync(join(tmpdir(), "ccski-plugin-scope-"));
 
   const pluginRoot = join(repoRoot, "plugins", "backend-development");
-  const skillDir = createSkill(join(pluginRoot, "skills"), "api-design-principles", "api design");
+  createSkill(join(pluginRoot, "skills"), "api-design-principles", "api design");
 
   const marketplaceDir = join(repoRoot, ".claude-plugin");
   mkdirSync(marketplaceDir, { recursive: true });
@@ -132,6 +132,55 @@ describe("installCommand end-to-end", () => {
 
     const installed = listInstalled(targetDir);
     expect(installed.sort()).toEqual(["algorithmic-art", "canvas-design"]);
+  });
+
+  it("installs ccski workflow instructions when source is omitted", async () => {
+    const userDir = mkdtempSync(join(tmpdir(), "ccski-install-user-"));
+
+    await installCommand({
+      agent: ["codex"],
+      userDir,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const target = join(userDir, ".codex", "AGENTS.md");
+    expect(existsSync(target)).toBe(true);
+    expect(readFileSync(target, "utf8")).toContain('<workflow name="ccski">');
+  });
+
+  it("installs project workflow instructions through --project", async () => {
+    await installCommand({
+      agent: ["gemini"],
+      project: true,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    const target = join(cwd, "GEMINI.md");
+    expect(readFileSync(target, "utf8")).toContain("bunx ccski list --no-color");
+  });
+
+  it("uses interactive selection for workflow targets when source is omitted", async () => {
+    const userDir = mkdtempSync(join(tmpdir(), "ccski-install-user-"));
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    vi.mocked(promptMultiSelect).mockResolvedValue(["codex", "gemini"]);
+
+    await installCommand({
+      interactive: true,
+      userDir,
+      _: [],
+      $0: "ccski",
+    } as any);
+
+    expect(readFileSync(join(userDir, ".codex", "AGENTS.md"), "utf8")).toContain(
+      '<workflow name="ccski">'
+    );
+    expect(readFileSync(join(userDir, ".gemini", "GEMINI.md"), "utf8")).toContain(
+      '<workflow name="ccski">'
+    );
+    expect(existsSync(join(userDir, ".claude", "CLAUDE.md"))).toBe(false);
   });
 
   it("resolves marketplace skills relative to plugin source directories", async () => {

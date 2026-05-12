@@ -20,6 +20,17 @@ const preview = await installSkills({
 });
 ```
 
+## `installCcskiWorkflow`
+
+```ts
+const result = installCcskiWorkflow({
+  agents: ["codex", "gemini"],
+  scope: "user",
+});
+```
+
+Use `scope: "project"` with `projectDir` to target project instruction files.
+
 ## Errors
 
 - Throws for invalid sources or selection requirements.

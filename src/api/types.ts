@@ -34,7 +34,7 @@ export interface ToggleOptions extends RegistryInput, FilterOptions {
 }
 
 export interface InstallOptions {
-  source: string;
+  source?: string;
   skills?: string[];
   force?: boolean;
   override?: boolean;
@@ -52,6 +52,43 @@ export interface InstallOptions {
   dryRun?: boolean;
   timeout?: number;
   yes?: boolean;
+}
+
+export type AgentInstructionScope = "user" | "project";
+
+export interface AgentInstructionTarget {
+  id: string;
+  label: string;
+  aliases: readonly string[];
+  userPath: readonly string[];
+  projectPath: readonly string[];
+}
+
+export interface WorkflowInstallOptions {
+  agents?: string[];
+  scope?: AgentInstructionScope;
+  userDir?: string;
+  projectDir?: string;
+  dryRun?: boolean;
+}
+
+export interface WorkflowInstallResultEntry {
+  agent: string;
+  label: string;
+  scope: AgentInstructionScope;
+  path: string;
+  status: "installed" | "updated" | "unchanged" | "failed";
+  error?: string;
+}
+
+export interface WorkflowInstallResult {
+  scope: AgentInstructionScope;
+  dryRun: boolean;
+  results: WorkflowInstallResultEntry[];
+  installed: number;
+  updated: number;
+  unchanged: number;
+  failed: number;
 }
 
 export interface SkillInfoResult {

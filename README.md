@@ -8,6 +8,7 @@ Documentation site: https://jixoai-labs.github.io/ccski/
 
 - [Install](#install)
 - [Quick start](#quick-start)
+  - [Connect ccski to your agent prompt](#connect-ccski-to-your-agent-prompt)
   - [Run MCP server](#run-mcp-server)
   - [Core CLI commands](#core-cli-commands)
   - [Install examples](#install-examples)
@@ -31,6 +32,52 @@ ccski --help
 ```
 
 ## Quick start
+
+### Connect ccski to your agent prompt
+
+ccski works best when your agent is told how to discover local skills at the
+start of a new context. The installer writes a managed English workflow block
+into common agent instruction files:
+
+```bash
+npx -y ccski install
+```
+
+By default this installs at user scope for known agents:
+
+- Codex: `~/.codex/AGENTS.md`
+- Claude Code: `~/.claude/CLAUDE.md`
+- Gemini CLI: `~/.gemini/GEMINI.md`
+- OpenCode: `~/.config/opencode/AGENTS.md`
+
+Limit the target or install only into the current project:
+
+```bash
+# one agent, user scope
+npx -y ccski install --agent=codex
+
+# one project file in the current directory
+npx -y ccski install --agent=gemini --project
+
+# preview changes
+npx -y ccski install --dry-run --json
+```
+
+The installer is idempotent. It replaces only the managed
+`<workflow name="ccski">...</workflow>` block and preserves the rest of your
+prompt file.
+
+Manual install is also fine. Add this block to your user or project instruction
+file, such as `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, or
+`~/.gemini/GEMINI.md`:
+
+```md
+<workflow name="ccski">
+When starting a new context, run `bunx ccski list --no-color` to discover extra local skills available on this machine, especially shared `agents:user` skills and agent-specific skills such as `claude:user`, `codex:user`, and `gemini:user`.
+If the user names a skill, or a task clearly matches a skill that is not already exposed in the current session, do not assume the skill is unavailable. First run `bunx ccski list --no-color`, then run `bunx ccski info <name>` and load the `SKILL.md` path reported by the output.
+`ccski` may emit compatibility warnings while reading local agent or plugin metadata, such as `installed_plugins.json`. These warnings do not necessarily block `list` or `info`; prefer `--no-color` for readable output and downstream parsing.
+</workflow>
+```
 
 ### Run MCP server
 
@@ -56,15 +103,16 @@ MCP plugin config example (Codex/Cursor/Windsurf/VS Code):
 
 ### Core CLI commands
 
-| Command                                         | Purpose                                                                        |
-| ----------------------------------------------- | ------------------------------------------------------------------------------ |
-| `ccski list`                                    | List discovered skills (project, user, plugin)                                 |
-| `ccski info <name>`                             | Show metadata and content preview                                              |
-| `ccski install <source> [-i\|--all\|--path]`    | Install from git/dir/marketplace/SKILL.md; interactive picker available        |
-| `ccski enable [names...] [-i\|--all]`           | Enable skills (`.SKILL.md` -> `SKILL.md`)                                      |
-| `ccski disable [names...] [-i\|--all]`          | Disable skills (`SKILL.md` -> `.SKILL.md`)                                     |
-| `ccski validate <path>`                         | Validate SKILL.md or skill directory                                           |
-| `ccski mcp`                                     | Start MCP server (stdio/http/sse)                                              |
+| Command                                      | Purpose                                                                 |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| `ccski list`                                 | List discovered skills (project, user, plugin)                          |
+| `ccski info <name>`                          | Show metadata and content preview                                       |
+| `ccski install`                              | Install the ccski workflow block into agent instruction files           |
+| `ccski install <source> [-i\|--all\|--path]` | Install from git/dir/marketplace/SKILL.md; interactive picker available |
+| `ccski enable [names...] [-i\|--all]`        | Enable skills (`.SKILL.md` -> `SKILL.md`)                               |
+| `ccski disable [names...] [-i\|--all]`       | Disable skills (`SKILL.md` -> `.SKILL.md`)                              |
+| `ccski validate <path>`                      | Validate SKILL.md or skill directory                                    |
+| `ccski mcp`                                  | Start MCP server (stdio/http/sse)                                       |
 
 ### Install examples
 

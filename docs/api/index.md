@@ -11,6 +11,7 @@ import {
   searchSkills,
   validateSkill,
   installSkills,
+  installCcskiWorkflow,
   toggleSkills,
   startMCPServer,
 } from "ccski";
@@ -82,6 +83,15 @@ const preview = await installSkills({
   source: "./local-skill",
   outDir: ["./.claude/skills"],
   dryRun: true,
+});
+```
+
+Workflow install:
+
+```ts
+const workflow = installCcskiWorkflow({
+  agents: ["codex"],
+  scope: "user",
 });
 ```
 

@@ -791,8 +791,15 @@ export async function installSkills(
   output: InstallOutput = silentOutput
 ): Promise<InstallResult> {
   try {
-    const parsed = parseGitUrl(options.source);
-    const resolvedSource = parsed?.repo ?? options.source;
+    if (!options.source) {
+      throw new Error(
+        "installSkills requires a source. Use installCcskiWorkflow for workflow setup."
+      );
+    }
+
+    const source = options.source;
+    const parsed = parseGitUrl(source);
+    const resolvedSource = parsed?.repo ?? source;
     const resolvedBranch = options.branch ?? parsed?.branch;
     const resolvedPath = options.path ?? (parsed?.type === "blob" ? parsed.path : undefined);
 
@@ -804,7 +811,7 @@ export async function installSkills(
 
     const destinations = await resolveDestinations(options, cmdBuilder, output);
     const materialized = await materializeSource(
-      options.source,
+      source,
       {
         ...(options.mode ? { mode: options.mode } : {}),
         ...(options.branch ? { branch: options.branch } : {}),
@@ -819,7 +826,7 @@ export async function installSkills(
     }
 
     const sourceArgs = buildSourceArgs(
-      options.source,
+      source,
       materialized.branch ?? options.branch,
       explicitPath,
       materialized.repo

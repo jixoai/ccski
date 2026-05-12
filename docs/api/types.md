@@ -4,6 +4,7 @@ The package exports all API option/result types. Common ones:
 
 - `ListOptions`, `InfoOptions`, `SearchOptions`, `ValidateOptions`
 - `InstallOptions`, `InstallResult`, `InstallSummary`, `InstallPreview`
+- `WorkflowInstallOptions`, `WorkflowInstallResult`, `WorkflowInstallResultEntry`
 - `ToggleOptions`, `ToggleSummary`
 - `SkillInfoResult`, `SearchResultItem`, `ValidateResult`
 

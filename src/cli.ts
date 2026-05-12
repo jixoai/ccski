@@ -178,11 +178,36 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
 };
 
 const installModule: CommandModule<unknown, InstallArgs> = {
-  command: "install <source>",
-  describe: "Install a skill into .claude/skills",
+  command: "install [source]",
+  describe: "Install ccski workflow instructions, or install skills from a source",
   builder: (cmd: Argv<unknown>): Argv<InstallArgs> =>
     cmd
-      .positional("source", { type: "string", demandOption: true })
+      .positional("source", {
+        type: "string",
+        description:
+          "Optional git/dir/marketplace/SKILL.md source. Omit to install ccski workflow instructions.",
+      })
+      .option("agent", {
+        alias: "A",
+        type: "array",
+        string: true,
+        description: "Agent prompt target for workflow install (repeatable, default: all)",
+      })
+      .option("scope", {
+        choices: ["user", "project"] as const,
+        default: "user" as const,
+        description: "Workflow install scope when no source is provided",
+      })
+      .option("user", {
+        type: "boolean",
+        default: false,
+        description: "Install workflow instructions at user scope",
+      })
+      .option("project", {
+        type: "boolean",
+        default: false,
+        description: "Install workflow instructions in the current project",
+      })
       .option("out-dir", {
         type: "array",
         string: true,
