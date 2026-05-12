@@ -10,6 +10,7 @@ import { mcpCommand, type McpArgs } from "./cli/commands/mcp.js";
 import { searchCommand, type SearchArgs } from "./cli/commands/search.js";
 import { disableCommand, enableCommand, type ToggleArgs } from "./cli/commands/toggle.js";
 import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
+import { readPackageVersion } from "./package-version.js";
 
 const listModule: CommandModule<unknown, ListArgs> = {
   command: "list",
@@ -365,5 +366,6 @@ await yargs(hideBin(process.argv))
   .strict()
   .help()
   .alias("h", "help")
+  .version(readPackageVersion())
   .alias("v", "version")
   .parse();
