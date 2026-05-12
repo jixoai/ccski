@@ -19,9 +19,10 @@ export const SKILL_SOURCE_PRIORITIES = {
   plugin: 0,
   "user-shared": 100,
   "user-agent": 200,
-  "workspace-shared": 300,
-  "workspace-agent": 400,
-  custom: 500,
+  "workspace-root": 300,
+  "workspace-shared": 400,
+  "workspace-agent": 500,
+  custom: 600,
 } as const;
 
 export type SkillSourceKind = keyof typeof SKILL_SOURCE_PRIORITIES;

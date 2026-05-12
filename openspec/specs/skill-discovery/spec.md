@@ -13,6 +13,7 @@ Define how ccski discovers SKILL.md directories across project, user, custom, an
 - The system SHALL include user agent-specific roots `~/.claude/skills`, `~/.codex/skills`, `~/.gemini/skills`, and `~/.openclaw/skills` with providers matching the directory name.
 - The system SHALL include workspace shared roots `<workspace>/skills` and `<workspace>/.agents/skills` with provider `agents`.
 - The system SHALL include workspace agent-specific roots `<workspace>/.claude/skills`, `<workspace>/.codex/skills`, `<workspace>/.gemini/skills`, and `<workspace>/.openclaw/skills` with providers matching the directory name.
+- Workspace source priority SHALL rank `<workspace>/.<agent>/skills` above `<workspace>/.agents/skills`, and `<workspace>/.agents/skills` above `<workspace>/skills`.
 - The system SHALL discover unknown agent providers by scanning only immediate hidden children named `.<agent>/skills` under the workspace and user directory; it MUST NOT recursively crawl hidden directories looking for skills.
 - Missing directories MUST NOT fail discovery; they are skipped while diagnostics record the attempted path.
 - Discovery MUST collect all matching skills. Duplicate selection is resolved by include/filter logic, while discovery diagnostics record duplicate skill names as conflicts.

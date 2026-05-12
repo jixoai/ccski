@@ -12,6 +12,7 @@ Documentation site: https://jixoai-labs.github.io/ccski/
   - [Core CLI commands](#core-cli-commands)
   - [Install examples](#install-examples)
   - [Enable/disable](#enabledisable)
+  - [Discovery roots and priority](#discovery-roots-and-priority)
 - [More](#more)
 - [Acknowledgements](#acknowledgements)
 - [API Reference](#api-reference)
@@ -86,6 +87,27 @@ ccski enable -i
 # Disable all enabled skills
 ccski disable --all
 ```
+
+### Discovery roots and priority
+
+By default ccski scans shared and agent-specific skill roots in the workspace and user
+home directory. Built-in agent roots include `.claude/skills`, `.codex/skills`,
+`.gemini/skills`, and `.openclaw/skills`; ccski also discovers shallow dynamic
+agent roots such as `.<agent>/skills`.
+
+When `auto` selection sees the same skill name in multiple roots, ccski keeps every
+copy internally but chooses one by source priority:
+
+1. `--skill-dir` custom roots
+2. `<workspace>/.<agent>/skills`
+3. `<workspace>/.agents/skills`
+4. `<workspace>/skills`
+5. `~/.<agent>/skills`
+6. `~/.agents/skills`
+7. Claude plugin skills
+
+If two copies have the same source priority, the newer `SKILL.md` or `.SKILL.md`
+mtime wins. If mtimes also tie, provider ordering is deterministic.
 
 ## More
 

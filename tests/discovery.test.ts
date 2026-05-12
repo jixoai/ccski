@@ -134,9 +134,13 @@ describe("discoverSkills", () => {
       expect(byName.get("shared-user")?.provider).toBe("agents");
       expect(byName.get("gemini-user")?.provider).toBe("gemini");
       expect(byName.get("shared-workspace")?.provider).toBe("agents");
+      expect(byName.get("shared-workspace")?.sourceKind).toBe("workspace-root");
       expect(byName.get("agents-workspace")?.provider).toBe("agents");
+      expect(byName.get("agents-workspace")?.sourceKind).toBe("workspace-shared");
       expect(byName.get("openclaw-workspace")?.provider).toBe("openclaw");
+      expect(byName.get("openclaw-workspace")?.sourceKind).toBe("workspace-agent");
       expect(byName.get("dynamic-workspace")?.provider).toBe("myagent");
+      expect(byName.get("dynamic-workspace")?.sourceKind).toBe("workspace-agent");
       expect(byName.has("ignored-cache")).toBe(false);
       expect(result.diagnostics.byProvider.myagent).toBe(1);
     } finally {

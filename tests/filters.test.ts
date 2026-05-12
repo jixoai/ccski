@@ -248,6 +248,54 @@ describe("filters", () => {
     expect(filtered[0]?.provider).toBe("gemini");
   });
 
+  it("prefers workspace shared over workspace root skills", () => {
+    const workspaceRootPath = makeDir("workspace-root");
+    const workspaceSharedPath = makeDir("workspace-shared");
+    touchPath(workspaceRootPath, Date.now() + 10_000);
+    touchPath(workspaceSharedPath, Date.now());
+
+    const skills = [
+      skill("find-skills", "agents", "project", workspaceRootPath, {
+        sourceKind: "workspace-root",
+        sourcePriority: 300,
+      }),
+      skill("find-skills", "agents", "project", workspaceSharedPath, {
+        sourceKind: "workspace-shared",
+        sourcePriority: 400,
+      }),
+    ];
+
+    const { includes, excludes } = parseFilters(undefined, undefined);
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.path).toBe(workspaceSharedPath);
+  });
+
+  it("prefers workspace agent-specific skills over workspace shared skills", () => {
+    const workspaceSharedPath = makeDir("workspace-shared-agents");
+    const workspaceAgentPath = makeDir("workspace-gemini");
+    touchPath(workspaceSharedPath, Date.now() + 10_000);
+    touchPath(workspaceAgentPath, Date.now());
+
+    const skills = [
+      skill("find-skills", "agents", "project", workspaceSharedPath, {
+        sourceKind: "workspace-shared",
+        sourcePriority: 400,
+      }),
+      skill("find-skills", "gemini", "project", workspaceAgentPath, {
+        sourceKind: "workspace-agent",
+        sourcePriority: 500,
+      }),
+    ];
+
+    const { includes, excludes } = parseFilters(undefined, undefined);
+    const filtered = applyFilters(skills, includes, excludes, "enabled");
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.provider).toBe("gemini");
+  });
+
   it("accepts discovered dynamic providers when provider context is supplied", () => {
     const dynamicPath = makeDir("dynamic-provider");
     const otherPath = makeDir("dynamic-other");

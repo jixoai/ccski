@@ -165,7 +165,7 @@ The CLI SHALL list discovered skills using the shared registry, keep ordinary co
 
 ### Requirement: Auto deduplication
 
-- In `auto` mode (within include handling), when multiple skills share the same base name across providers, the CLI MUST deduplicate by source priority first: custom roots > workspace agent-specific roots > workspace shared roots > user agent-specific roots > user shared roots > plugin skills.
+- In `auto` mode (within include handling), when multiple skills share the same base name across providers, the CLI MUST deduplicate by source priority first: custom roots > workspace agent-specific roots (`<workspace>/.<agent>/skills`) > workspace shared agent roots (`<workspace>/.agents/skills`) > workspace root skills (`<workspace>/skills`) > user agent-specific roots (`~/.<agent>/skills`) > user shared roots (`~/.agents/skills`) > plugin skills.
 - If source priority ties, the newer `SKILL.md` or `.SKILL.md` mtime MUST win.
 - If mtime ties, the CLI MUST use deterministic provider ordering where built-in providers sort before dynamic providers and dynamic providers sort by provider name.
 - Dedup applies only when `auto` is present in include set; `all` preserves duplicates.
@@ -176,6 +176,13 @@ The CLI SHALL list discovered skills using the shared registry, keep ordinary co
 - AND `review` exists in `~/.agents/skills/review/SKILL.md` with a newer mtime
 - WHEN running `ccski list` with default filters
 - THEN only the workspace Gemini `review` appears.
+
+#### Scenario: workspace agent-specific beats workspace shared
+
+- GIVEN `find-skills` exists in `<workspace>/.gemini/skills/find-skills/SKILL.md`
+- AND `find-skills` exists in `<workspace>/.agents/skills/find-skills/SKILL.md` with a newer mtime
+- WHEN running `ccski list` with default filters
+- THEN only the workspace Gemini `find-skills` appears.
 
 ### Requirement: Provider-aware naming and display
 

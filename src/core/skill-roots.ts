@@ -123,7 +123,7 @@ export function getDefaultSkillDirectories(
   return uniqueByPath([
     ...builtInAgentRoots(workspace, "project", "workspace-agent"),
     ...discoverDynamicAgentRoots(workspace, "project", "workspace-agent"),
-    sharedRoot(join(workspace, "skills"), "project", "workspace-shared"),
+    sharedRoot(join(workspace, "skills"), "project", "workspace-root"),
     sharedRoot(join(workspace, ".agents", "skills"), "project", "workspace-shared"),
     ...legacySharedRoot(workspace, "project", "workspace-shared"),
     ...builtInAgentRoots(user, "user", "user-agent"),
