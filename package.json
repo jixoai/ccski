@@ -1,6 +1,6 @@
 {
   "name": "ccski",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Claude Code Skills Manager - CLI and MCP interface for managing skills across AI agents",
   "type": "module",
   "bin": {
@@ -42,12 +42,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jixoai-labs/ccski.git"
+    "url": "git+https://github.com/jixoai/ccski.git"
   },
   "bugs": {
-    "url": "https://github.com/jixoai-labs/ccski/issues"
+    "url": "https://github.com/jixoai/ccski/issues"
   },
-  "homepage": "https://github.com/jixoai-labs/ccski#readme",
+  "homepage": "https://github.com/jixoai/ccski#readme",
   "dependencies": {
     "debug": "^4.3.7"
   },
