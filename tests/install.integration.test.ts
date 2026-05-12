@@ -21,6 +21,14 @@ function createSkill(root: string, name: string, desc = "demo"): string {
   return dir;
 }
 
+function initializeGitRepo(repoRoot: string): void {
+  execSync("git init", { cwd: repoRoot, stdio: "ignore" });
+  execSync('git config user.email "ccski-tests@example.com"', { cwd: repoRoot, stdio: "ignore" });
+  execSync('git config user.name "ccski tests"', { cwd: repoRoot, stdio: "ignore" });
+  execSync("git add .", { cwd: repoRoot, stdio: "ignore" });
+  execSync('git commit -m "init"', { cwd: repoRoot, stdio: "ignore" });
+}
+
 function createRepoWithMarketplace(): string {
   const repoRoot = mkdtempSync(join(tmpdir(), "ccski-install-repo-"));
   const skillsRoot = repoRoot;
@@ -45,9 +53,7 @@ function createRepoWithMarketplace(): string {
   };
   writeFileSync(join(pluginDir, "marketplace.json"), JSON.stringify(marketplace, null, 2));
 
-  execSync("git init", { cwd: repoRoot, stdio: "ignore" });
-  execSync("git add .", { cwd: repoRoot, stdio: "ignore" });
-  execSync('git commit -m "init"', { cwd: repoRoot, stdio: "ignore" });
+  initializeGitRepo(repoRoot);
 
   // expose path ending with .git so clone path triggers
   const gitPath = `${repoRoot}.git`;
@@ -78,9 +84,7 @@ function createRepoWithPluginScopedSkills(): string {
   };
   writeFileSync(join(marketplaceDir, "marketplace.json"), JSON.stringify(marketplace, null, 2));
 
-  execSync("git init", { cwd: repoRoot, stdio: "ignore" });
-  execSync("git add .", { cwd: repoRoot, stdio: "ignore" });
-  execSync('git commit -m "init"', { cwd: repoRoot, stdio: "ignore" });
+  initializeGitRepo(repoRoot);
 
   // expose path ending with .git so clone path triggers if desired
   const gitPath = `${repoRoot}.git`;
@@ -345,9 +349,7 @@ describe("installCommand URL resolution scenarios", () => {
     };
     writeFileSync(join(pluginDir, "marketplace.json"), JSON.stringify(marketplace, null, 2));
 
-    execSync("git init", { cwd: repoPath, stdio: "ignore" });
-    execSync("git add .", { cwd: repoPath, stdio: "ignore" });
-    execSync('git commit -m "init"', { cwd: repoPath, stdio: "ignore" });
+    initializeGitRepo(repoPath);
   });
 
   afterEach(() => {
