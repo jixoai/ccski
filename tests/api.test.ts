@@ -55,6 +55,21 @@ describe("programmatic API", () => {
     expect(disabled.map((s) => s.name)).toEqual(["other:beta"]);
   });
 
+  it("preserves an explicit provider for custom programmatic roots", async () => {
+    createSkill(cwd, "provider-scoped");
+
+    const skills = await listSkills({
+      customDirs: [{ path: cwd, scope: "embedded" }],
+      customProvider: "codex",
+      scanDefaultDirs: false,
+      claudePluginsFile: join(cwd, "missing-plugins.json"),
+    });
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]?.provider).toBe("codex");
+    expect(skills[0]?.name).toBe("embedded:provider-scoped");
+  });
+
   it("returns info payload with preview and full content", async () => {
     const bodyLines = Array.from({ length: 25 }, (_, idx) => `line-${idx + 1}`).join("\n");
     createSkill(cwd, "alpha", false, bodyLines);
