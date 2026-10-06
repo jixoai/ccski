@@ -9,6 +9,25 @@ export const SkillFrontmatterSchema = z.object({
 }).passthrough(); // Allow additional fields
 
 /**
+ * Restricted skill name for filesystem-facing primitives (install destination,
+ * remove target): the name *is* the direct-child directory name, so it must
+ * never contain separators, traversal, NUL, scope prefixes, or leading dots.
+ * Stricter than the frontmatter schema by design; violations are typed
+ * rejections, not aliases.
+ */
+export const RestrictedSkillNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Skill name cannot be empty")
+  .max(128, "Skill name cannot exceed 128 characters")
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._+@-]*$/,
+    "Skill name may only contain letters, digits, and '. _ + @ -' (no leading dot)"
+  );
+
+export type RestrictedSkillName = z.infer<typeof RestrictedSkillNameSchema>;
+
+/**
  * Schema for plugin entry in installed_plugins.json
  */
 export const PluginEntrySchema = z

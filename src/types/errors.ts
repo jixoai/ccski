@@ -68,3 +68,19 @@ export class ParseError extends CcskiError {
     this.name = "ParseError";
   }
 }
+
+/**
+ * Error thrown when a skill name fails the restricted filesystem-safe schema
+ * (used by install destination audit and removal targets)
+ */
+export class InvalidSkillNameError extends CcskiError {
+  constructor(
+    public skillName: string,
+    public reason: string
+  ) {
+    super(`Invalid skill name '${skillName}': ${reason}`, [
+      "Use letters, digits, and '. _ + @ -' (no leading dot, separators, or scope prefix).",
+    ]);
+    this.name = "InvalidSkillNameError";
+  }
+}

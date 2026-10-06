@@ -1,7 +1,17 @@
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { InteractiveCommandBuilder, skillsShortRender } from "../cli/prompts/commandBuilder.js";
 import {
   Choice,
@@ -9,6 +19,8 @@ import {
   promptMultiSelect as promptMultiSelectTargets,
 } from "../cli/prompts/multiSelect.js";
 import { parseSkillFile } from "../core/parser.js";
+import { CcskiError, InvalidSkillNameError } from "../types/errors.js";
+import { RestrictedSkillNameSchema } from "../types/schemas.js";
 import { parseFilters } from "../utils/filters.js";
 import { dim, heading, info, renderList, tone } from "../utils/format.js";
 import { parseGitUrl } from "../utils/git-url-parser.js";
@@ -249,6 +261,141 @@ interface InternalInstallResult {
   path: string;
   name: string;
   status: "installed" | "skipped" | "overwritten";
+  warning?: string;
+}
+
+/** Finite audit codes for typed installation failures (clients never parse strings). */
+export type InstallAuditCode =
+  | "SOURCE_NOT_FOUND"
+  | "SOURCE_SYMLINK"
+  | "SOURCE_NOT_DIRECTORY"
+  | "TARGET_ROOT_SYMLINK"
+  | "TARGET_ROOT_NOT_DIRECTORY"
+  | "PATH_ESCAPE"
+  | "DEST_SYMLINK"
+  | "DEST_NOT_DIRECTORY"
+  | "COPY_FAILED"
+  | "SWAP_FAILED";
+
+const installAuditSuggestions: Record<InstallAuditCode, string[]> = {
+  SOURCE_NOT_FOUND: ["Verify the skill source directory exists."],
+  SOURCE_SYMLINK: ["Install from a real directory; resolve symbolic links first."],
+  SOURCE_NOT_DIRECTORY: ["The source path exists but is not a directory."],
+  TARGET_ROOT_SYMLINK: ["Provide a real target root directory, not a symbolic link."],
+  TARGET_ROOT_NOT_DIRECTORY: ["The target root path exists but is not a directory."],
+  PATH_ESCAPE: ["The resolved destination must stay a direct child of the target root."],
+  DEST_SYMLINK: ["Remove the symbolic link at the destination explicitly, then reinstall."],
+  DEST_NOT_DIRECTORY: ["A non-directory occupies the destination path; remove it explicitly."],
+  COPY_FAILED: ["Check source readability and target disk space; the destination was left untouched."],
+  SWAP_FAILED: ["The previous installation was restored or left as a .ccski-backup-* residual; inspect the target root."],
+};
+
+/** Typed installation audit/recovery failure carrying a machine-readable code. */
+export class InstallAuditError extends CcskiError {
+  constructor(
+    public code: InstallAuditCode,
+    message: string,
+    public path?: string
+  ) {
+    super(`${message} [${code}]`, installAuditSuggestions[code]);
+    this.name = "InstallAuditError";
+  }
+}
+
+function lstatSafe(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Staging/backup prefix; hidden, always removed on handled failure paths. */
+const STAGING_PREFIX = ".ccski-staging-";
+const BACKUP_PREFIX = ".ccski-backup-";
+
+/** Copy source into a staging dir inside the root (same FS, rename-safe). */
+function stageCopy(skillDir: string, targetRoot: string): string {
+  const staging = mkdtempSync(join(targetRoot, STAGING_PREFIX));
+  try {
+    cpSync(skillDir, staging, { recursive: true, force: true });
+    return staging;
+  } catch (err) {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup failure; staging is hidden and inert
+    }
+    throw new InstallAuditError(
+      "COPY_FAILED",
+      `Failed to stage copy of ${skillDir}: ${err instanceof Error ? err.message : String(err)}`,
+      skillDir
+    );
+  }
+}
+
+/**
+ * Swap a staged copy into place. Fresh install: single atomic rename.
+ * Overwrite: dest -> backup, staging -> dest, backup removed; a failed swap
+ * restores the backup (best effort) and reports residual state when it cannot.
+ */
+function swapIntoPlace(
+  staging: string,
+  destDir: string,
+  targetRoot: string,
+  overwrite: boolean
+): string | undefined {
+  if (!overwrite) {
+    try {
+      renameSync(staging, destDir);
+    } catch (err) {
+      try {
+        rmSync(staging, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup failure
+      }
+      throw new InstallAuditError(
+        "SWAP_FAILED",
+        `Failed to move staged install into place: ${err instanceof Error ? err.message : String(err)}`,
+        destDir
+      );
+    }
+    return undefined;
+  }
+
+  const backup = mkdtempSync(join(targetRoot, BACKUP_PREFIX));
+  renameSync(destDir, backup);
+  try {
+    renameSync(staging, destDir);
+  } catch (err) {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup failure
+    }
+    try {
+      renameSync(backup, destDir);
+      throw new InstallAuditError(
+        "SWAP_FAILED",
+        `Failed to move staged install into place (previous installation restored): ${err instanceof Error ? err.message : String(err)}`,
+        destDir
+      );
+    } catch (restoreErr) {
+      if (restoreErr instanceof InstallAuditError) throw restoreErr;
+      throw new InstallAuditError(
+        "SWAP_FAILED",
+        `Failed to move staged install into place AND restore failed; previous installation remains at ${backup}: ${err instanceof Error ? err.message : String(err)}`,
+        destDir
+      );
+    }
+  }
+
+  try {
+    rmSync(backup, { recursive: true, force: true });
+  } catch {
+    return `Previous installation backup could not be deleted: ${backup}`;
+  }
+  return undefined;
 }
 
 export function installSkillDir(
@@ -256,6 +403,17 @@ export function installSkillDir(
   targetRoot: string,
   force = false
 ): InternalInstallResult {
+  const sourceSt = lstatSafe(skillDir);
+  if (sourceSt === null) {
+    throw new InstallAuditError("SOURCE_NOT_FOUND", `Source skill directory not found`, skillDir);
+  }
+  if (sourceSt.isSymbolicLink()) {
+    throw new InstallAuditError("SOURCE_SYMLINK", `Source skill directory is a symbolic link`, skillDir);
+  }
+  if (!sourceSt.isDirectory()) {
+    throw new InstallAuditError("SOURCE_NOT_DIRECTORY", `Source is not a directory`, skillDir);
+  }
+
   const skillFile = join(skillDir, "SKILL.md");
   if (!existsSync(skillFile)) {
     throw new Error(`No SKILL.md found in ${skillDir}`);
@@ -264,20 +422,54 @@ export function installSkillDir(
   const parsed = parseSkillFile(skillFile);
   const skillName = parsed.frontmatter.name;
 
-  const destDir = join(targetRoot, skillName);
-  ensureDir(targetRoot);
+  const nameValidation = RestrictedSkillNameSchema.safeParse(skillName);
+  if (!nameValidation.success) {
+    const issue = nameValidation.error.errors[0]?.message ?? "invalid skill name";
+    throw new InvalidSkillNameError(skillName, issue);
+  }
 
-  const alreadyExists = existsSync(destDir);
+  const resolvedRoot = resolve(targetRoot);
+  const rootSt = lstatSafe(resolvedRoot);
+  if (rootSt === null) {
+    mkdirSync(resolvedRoot, { recursive: true });
+  } else if (rootSt.isSymbolicLink()) {
+    throw new InstallAuditError("TARGET_ROOT_SYMLINK", `Target root is a symbolic link`, resolvedRoot);
+  } else if (!rootSt.isDirectory()) {
+    throw new InstallAuditError(
+      "TARGET_ROOT_NOT_DIRECTORY",
+      `Target root is not a directory`,
+      resolvedRoot
+    );
+  }
+
+  // Defense in depth behind the name schema: joined dest must stay in the root.
+  const destDir = join(resolvedRoot, nameValidation.data);
+  const rel = relative(resolvedRoot, resolve(destDir));
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new InstallAuditError("PATH_ESCAPE", `Destination escapes target root`, destDir);
+  }
+
+  const destSt = lstatSafe(destDir);
+  const alreadyExists = destSt !== null;
+
+  if (destSt?.isSymbolicLink()) {
+    throw new InstallAuditError("DEST_SYMLINK", `Destination is a symbolic link`, destDir);
+  }
+  if (destSt !== null && !destSt.isDirectory()) {
+    throw new InstallAuditError("DEST_NOT_DIRECTORY", `Destination exists but is not a directory`, destDir);
+  }
 
   if (!force && alreadyExists) {
     return { path: destDir, name: skillName, status: "skipped" };
   }
 
-  cpSync(skillDir, destDir, { recursive: true, force: true });
+  const staging = stageCopy(skillDir, resolvedRoot);
+  const warning = swapIntoPlace(staging, destDir, resolvedRoot, alreadyExists);
   return {
     path: destDir,
     name: skillName,
     status: alreadyExists ? "overwritten" : "installed",
+    ...(warning !== undefined ? { warning } : {}),
   };
 }
 

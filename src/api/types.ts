@@ -161,3 +161,63 @@ export interface ToggleSummary {
   skipped: number;
   failed: number;
 }
+
+/** Why a removal item was skipped (finite vocabulary; clients never parse strings). */
+export type RemoveSkipReason = "NOT_FOUND";
+
+/** Why a removal item failed (finite vocabulary; clients never parse strings). */
+export type RemoveFailureCode =
+  | "INVALID_NAME"
+  | "PATH_ESCAPE"
+  | "NOT_DIRECTORY"
+  | "NOT_A_SKILL"
+  | "SYMLINK_TARGET"
+  | "GUARD_INVALID"
+  | "GUARD_MISMATCH"
+  | "GUARD_UNREADABLE"
+  | "DELETE_FAILED";
+
+/** Guarded removal request: a name plus optional check-then-delete swap guards. */
+export interface RemoveSkillRequest {
+  name: string;
+  /** Expected sha256 hex of the active identity file (SKILL.md, else .SKILL.md). */
+  expectedContentHash?: string;
+  /** Expected inode of the skill directory from a prior lstat. */
+  expectedInode?: number;
+}
+
+export interface RemoveResultEntry {
+  skill: string;
+  path: string;
+  status: "removed" | "skipped" | "failed";
+  reason?: RemoveSkipReason;
+  errorCode?: RemoveFailureCode;
+  error?: string;
+}
+
+export interface RemoveSummary {
+  results: RemoveResultEntry[];
+  removed: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface RemovePreview {
+  dryRun: true;
+  skills: Array<{ name: string; path: string; exists: boolean }>;
+  totalRemovals: number;
+}
+
+export type RemoveResult = RemoveSummary | RemovePreview;
+
+export interface RemoveOptions {
+  /** Already-resolved target root (host-guarded); must be a real directory. */
+  targetRoot: string;
+  /** Explicit names or guarded requests. Required unless `all` or `interactive`. */
+  requests?: Array<string | RemoveSkillRequest>;
+  /** Remove every discovered direct-child skill directory. */
+  all?: boolean;
+  interactive?: boolean;
+  yes?: boolean;
+  dryRun?: boolean;
+}
