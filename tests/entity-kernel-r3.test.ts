@@ -41,6 +41,7 @@ import {
   gcPropose,
   projectEntity,
   removeEntityProjections,
+  toggleEntityProjection,
   updateEntity,
 } from "../src/api/index.js";
 import * as folderHashModule from "../src/core/folder-hash.js";
@@ -52,6 +53,7 @@ import {
   rewriteSkillBody,
   scopeOpts,
   writeSkillSource,
+  writeState,
   type Sandbox,
 } from "./helpers/kernel-fixtures.js";
 
@@ -654,4 +656,107 @@ describe("P1-E pin fd 生命周期与缺席 errno 纪律", () => {
       cleanupSandbox(sandbox);
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// 实体表按记录降级（终审第三轮补：MainAgent 探针实证）——损坏实体记录被
+// parseEntityTable 丢弃时，四个按名解析 API 不得谎报 ENTITY_NOT_FOUND（宿主会
+// 把「未登记」当 legacy 处置）；缺席不可证明 → STATE_RECOVERY_REQUIRED。
+// ---------------------------------------------------------------------------
+describe("entity table degraded (per-record corruption)", () => {
+  it("updateEntity：损坏实体记录 → STATE_RECOVERY_REQUIRED（不是 ENTITY_NOT_FOUND）", async () => {
+    const sandbox = makeSandbox("r3-etd-upd", "project");
+    try {
+      const srcV1 = writeSkillSource(sandbox.workspace, "skill-a", "body v1");
+      const ensured = await ensureEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        source: { dir: srcV1 },
+      });
+      expect(ensured.kind).toBe("ok");
+      const state = readState(sandbox.scopeBase);
+      const key = Object.keys(state.entities)[0] as string;
+      (state.entities[key] as Record<string, unknown>).revision = 12345; // 非法类型
+      writeState(sandbox.scopeBase, state);
+      const srcV2 = writeSkillSource(sandbox.workspace, "skill-a", "body v2");
+      const updated = await updateEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "skill-a",
+        source: { dir: srcV2 },
+      });
+      expect(updated).toMatchObject({
+        kind: "error",
+        code: "STATE_RECOVERY_REQUIRED",
+      });
+      // 实体内容与磁盘原样（未被 legacy 迁移处置）
+      expect(readFileSync(join(sandbox.entityRoot, "skill-a", "SKILL.md"), "utf8")).toContain("body v1");
+    } finally {
+      cleanupSandbox(sandbox);
+    }
+  });
+
+  it("removeEntityProjections / deleteEntity / toggleEntityProjection 同降级；干净未登记基线仍 ENTITY_NOT_FOUND", async () => {
+    const sandbox = makeSandbox("r3-etd-rm", "project");
+    try {
+      const srcDir = writeSkillSource(sandbox.workspace, "skill-a", "body v1");
+      const ensured = await ensureEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        source: { dir: srcDir },
+      });
+      expect(ensured.kind).toBe("ok");
+      const projected = await projectEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "skill-a",
+        roots: [join(sandbox.workspace, "prov")],
+      });
+      expect(projected.kind).toBe("ok");
+      const state = readState(sandbox.scopeBase);
+      const key = Object.keys(state.entities)[0] as string;
+      const originalRevision = (state.entities[key] as Record<string, unknown>).revision;
+      delete (state.entities[key] as Record<string, unknown>).revision; // 必填缺失
+      writeState(sandbox.scopeBase, state);
+      const roots = [join(sandbox.workspace, "prov")];
+      const removed = await removeEntityProjections({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "skill-a",
+        roots,
+      });
+      expect(removed).toMatchObject({ kind: "error", code: "STATE_RECOVERY_REQUIRED" });
+      const deleted = await deleteEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "skill-a",
+        expectedRevision: "whatever",
+      });
+      expect(deleted).toMatchObject({ kind: "error", code: "STATE_RECOVERY_REQUIRED" });
+      const toggled = await toggleEntityProjection({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "skill-a",
+        root: roots[0] as string,
+        action: "disable",
+      });
+      expect(toggled).toMatchObject({ kind: "error", code: "STATE_RECOVERY_REQUIRED" });
+      // 磁盘全原样：实体 + 投影
+      expect(existsSync(join(sandbox.entityRoot, "skill-a", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(sandbox.workspace, "prov", "skill-a"))).toBe(true);
+      // 干净基线：复原实体记录后，未登记名仍如实 ENTITY_NOT_FOUND
+      const restored = readState(sandbox.scopeBase);
+      (restored.entities[key] as Record<string, unknown>).revision = originalRevision;
+      writeState(sandbox.scopeBase, restored);
+      const clean = await updateEntity({
+        scope: "project",
+        workspaceDir: sandbox.workspace,
+        name: "never-registered",
+        source: { dir: srcDir },
+      });
+      expect(clean).toMatchObject({ kind: "error", code: "ENTITY_NOT_FOUND" });
+    } finally {
+      cleanupSandbox(sandbox);
+    }
+  });
 });

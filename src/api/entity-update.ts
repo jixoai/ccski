@@ -166,14 +166,25 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
     };
   }
   const base = read.kind === "ok" ? read.data : emptyState();
+  // 实体表按记录降级（终审第三轮补）：损坏记录被 parseEntityTable 丢弃时，「该名
+  // 不存在」不可证明——缺席断言降级为 STATE_RECOVERY_REQUIRED，调用方不得把可
+  // 能受登记的实体当 legacy 处置（宿主 fail-closed 消费）。
+  const entityTable = parseEntityTable(base.entities);
   let entityRecord: EntityRecord | undefined;
-  for (const record of parseEntityTable(base.entities).records.values()) {
+  for (const record of entityTable.records.values()) {
     if (record.logicalName === options.name) {
       entityRecord = record;
       break;
     }
   }
   if (entityRecord === undefined) {
+    if (entityTable.invalidKeys.length > 0) {
+      return {
+        kind: "error",
+        code: "STATE_RECOVERY_REQUIRED",
+        message: `entity table degraded (${entityTable.invalidKeys.length} invalid record(s)); cannot prove logical name "${options.name}" is unregistered; run ccski state repair`,
+      };
+    }
     return {
       kind: "error",
       code: "ENTITY_NOT_FOUND",

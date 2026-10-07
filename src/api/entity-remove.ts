@@ -180,14 +180,22 @@ export async function removeEntityProjections(
     };
   }
   const base = read.kind === "ok" ? read.data : emptyState();
+  const entityTable = parseEntityTable(base.entities);
   let entityRecord: EntityRecord | undefined;
-  for (const record of parseEntityTable(base.entities).records.values()) {
+  for (const record of entityTable.records.values()) {
     if (record.logicalName === options.name) {
       entityRecord = record;
       break;
     }
   }
   if (entityRecord === undefined) {
+    if (entityTable.invalidKeys.length > 0) {
+      return {
+        kind: "error",
+        code: "STATE_RECOVERY_REQUIRED",
+        message: `entity table degraded (${entityTable.invalidKeys.length} invalid record(s)); cannot prove logical name "${options.name}" is unregistered; run ccski state repair`,
+      };
+    }
     return {
       kind: "error",
       code: "ENTITY_NOT_FOUND",
@@ -677,14 +685,22 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
     };
   }
   const base = read.kind === "ok" ? read.data : emptyState();
+  const entityTable = parseEntityTable(base.entities);
   let entityRecord: EntityRecord | undefined;
-  for (const record of parseEntityTable(base.entities).records.values()) {
+  for (const record of entityTable.records.values()) {
     if (record.logicalName === options.name) {
       entityRecord = record;
       break;
     }
   }
   if (entityRecord === undefined) {
+    if (entityTable.invalidKeys.length > 0) {
+      return {
+        kind: "error",
+        code: "STATE_RECOVERY_REQUIRED",
+        message: `entity table degraded (${entityTable.invalidKeys.length} invalid record(s)); cannot prove logical name "${options.name}" is unregistered; run ccski state repair`,
+      };
+    }
     return {
       kind: "error",
       code: "ENTITY_NOT_FOUND",

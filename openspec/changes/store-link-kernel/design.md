@@ -100,6 +100,10 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 
 ## 终审第二轮回流裁决（2026-10-07 第三轮内核修复，Codex 5.5/10 否决项）
 
+### 补裁（MainAgent 探针实证，2026-10-07 第三轮集成复验）
+
+6. **实体表按记录降级的缺席不可证明**：集成探针实证——实体记录损坏（投影表完好）时四个按名解析 API 谎报 `ENTITY_NOT_FOUND`，宿主把「未登记」当 legacy 处置构成数据丢失面。裁决：解析点捕获 `parseEntityTable().invalidKeys`，查名落空且 invalidKeys 非空 → `STATE_RECOVERY_REQUIRED`（词表在册零扩），干净落空仍 `ENTITY_NOT_FOUND`；整文件损坏与 CAS「vanished concurrently」守卫语义不变。回归：update/remove/delete/toggle 四面 + 干净基线（entity-kernel-r3 追加 describe）。
+
 **P0-A 实体初始缺席时删除并发重建目录**：absent 门的唯一合法动作 = 退役 dangling state 记录；磁盘路径绝不由该门处置（旧实现 destroy 半区无条件 `rmSync(recursive, force)`——CAS 等待窗口内同名重建的内容被当 ccski 财产删除）。裁决：`destroyGuardedEntity` 的 absent 分支不再删除，路径在场（重建）以 `entityPresentOnDisk` 诊断 + warning 如实上报（deleteEntity ok 变体与 GC 报告同字段）；残留收敛走既有拓扑（未记录目录 → 下次 install `ENTITY_PATH_OCCUPIED` typed 可见 → 批 5 repair）。确定性回归：`StateStore.prototype.commit` spy 在退役 CAS 入口注入真重建（含 precious 文件），断言记录退役 + 内容原样。
 
 **P0-B 全树重算期间换体仍通过**：复读哈希是异步读取屏障——屏障内整目录换体（同内容新目录 + 附加文件）返回的是定格哈希，等值比对天然通过；旧实现哈希通过即 rmSync，inode 判据只在哈希**前**跑过一次。裁决：哈希复读通过后、rmSync 之前**追加第二次身份复核**（目录 inode + 身份源 inode + fd digest——同 P0-3 判据，零第三套实现）；复核时点路径已消失 = 无可销毁内容（deleted 如实）。残余窗口收敛到「第二次复核 → rmSync」微窗口，与物化副本守卫同级（Node 无按 fd 销毁 API，平台边界，本节与 P0-3 第 6 条同一诚实声明）。确定性回归：folder-hash 计数钩子（vi.mock 透传包裹，不 mock fs）在第 2 次实体哈希返回定格值后真换体。

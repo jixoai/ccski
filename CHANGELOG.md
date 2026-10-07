@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [3.0.0] - 2026-10-07
 
+### Fixed (pre-release correction, final review round 3)
+- Name-resolving kernel APIs (`updateEntity` / `removeEntityProjections` / `deleteEntity` / `toggleEntityProjection`) no longer report `ENTITY_NOT_FOUND` while the entity table contains records that fail schema parse; unresolved names return `STATE_RECOVERY_REQUIRED` (absence is unprovable under a degraded table). Clean misses still return `ENTITY_NOT_FOUND`.
+
 Breaking release (major). The 2.x skill manager is replaced by the **entity + projection kernel**: every installed skill is a canonical entity directory in the scope's `.agents/skills/` root plus explicit projections (symlinks by default) into named agent roots, with ccski-owned accounting in `<scopeBase>/.ccski-state.json`. Breaking boundaries are not backported into 2.x. Migration path for existing installs: [Migrating from 2.x](./README.md#migrating-from-2x).
 
 ### Platform verification statement (Windows)
