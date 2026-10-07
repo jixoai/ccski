@@ -113,7 +113,7 @@ MCP plugin config example (Codex/Cursor/Windsurf/VS Code):
 | Command                          | Purpose                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------- |
 | `ccski list`                     | List discovered skills with mode/ownership/provenance metadata                     |
-| `ccski info <name>`              | Show metadata and content preview                                                  |
+| `ccski info <name>`              | Show domain metadata (`--full` prints the SKILL.md document)                       |
 | `ccski search <query>`           | Search by name/description (optional `--content`)                                  |
 | `ccski validate <path>`          | Validate SKILL.md or skill directory                                               |
 | `ccski install`                  | Install the ccski workflow block into agent instruction files (unchanged in 3.0)   |
@@ -126,7 +126,11 @@ MCP plugin config example (Codex/Cursor/Windsurf/VS Code):
 | `ccski import <path> --claim`    | Adopt an unregistered symlink as a ccski projection (inode + hash guarded)         |
 | `ccski mcp`                      | Start MCP server (stdio/http/sse)                                                  |
 
-All commands support `--json` for typed, scriptable output.
+All commands emit typed JSON where a receipt exists: `list`, `info`, `validate`,
+`install`, `enable`, `disable`, `migrate`, `gc`, `state repair`, and `import`
+take `--json`; `search` uses `--format=json`; `mcp` is a long-running server
+(no JSON mode). `list`/`info` also accept `--redact-paths` for
+relative-path-only output.
 
 ### Install a skill
 
@@ -270,7 +274,7 @@ treated as a pass.
 - Programmatic API is available from the package export; see [API Reference](#api-reference) (or the docs site) for usage examples.
 - Claude users: prefer `ccski mcp --exclude=claude` to avoid echoing built-in Claude skills.
 - Codex users: prefer `ccski mcp --exclude=codex` when avoid echoing built-in Codex skills.
-- All commands support `--json` for scripting.
+- Receipt-bearing commands take `--json` (`search` uses `--format=json`); `list`/`info` also take `--redact-paths`.
 - Use `--no-color` to disable colors or `--color` to force them.
 - Read `SPEC.md` for deep technical details and design philosophy.
 
@@ -289,6 +293,11 @@ Notes:
 - Package is ESM (`"type": "module"`). Use `import` in Node.js >= 20.
 - Discovery/registry surfaces return **metadata**; `loadSkill()` /
   `SkillRegistry.load()` read full SKILL.md content.
+- Field visibility contract: `getSkillInfo`/`listSkills` return domain fields
+  only (no SKILL.md body); the explicit file-read face is `readSkillContent`.
+  Provenance `sourceUrl` is sanitized (userinfo/credentials and query strings
+  stripped) before leaving the kernel. The full public failure-code set is the
+  exported `PUBLIC_RESULT_CODES` table (`ResultCode`).
 - Mutations without an explicit `scope` fail typed `SCOPE_REQUIRED` (SDK has no
   implicit scope precedence; the CLI defaults to `project`).
 
@@ -310,6 +319,8 @@ import { migrateLegacyEntries, gcPropose, repairState, claimLink } from "ccski";
 
 // alignment face (retained)
 import { listSkills, getSkillInfo, searchSkills, validateSkill } from "ccski";
+// explicit file-read face (SKILL.md body)
+import { readSkillContent } from "ccski";
 
 // discovery face (retained)
 import { discoverSkills, SkillRegistry, validateSkillFile } from "ccski";
@@ -378,8 +389,8 @@ The remaining kernel mutations:
   (`ENTITY_REVISED` when the entity moved on).
 - `updateEntity({ scope, name, source, expectedRevision? })` — stable-path
   entity swap; materialized copies are re-materialized per copy; pinned copies
-  are skipped with typed `PINNED`. Partial success is the norm; there is no
-  "atomic reinstall".
+  are skipped with typed `PINNED`. Partial success is the norm; updates
+  converge per copy and are never all-or-nothing single-shot operations.
 
 ### Command API (migrate / gc / repair / claim)
 

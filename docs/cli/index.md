@@ -1,6 +1,6 @@
 # CLI Documentation
 
-ccski provides a CLI to manage skills across Claude and Codex runtimes. All commands accept `--json` for typed output.
+ccski provides a CLI to manage skills across Claude and Codex runtimes. Receipt-bearing commands accept `--json` for typed output (`search` uses `--format=json`; `mcp` is a long-running server); `list`/`info` also accept `--redact-paths` for relative-path-only output.
 
 3.0 model: every installed skill is an **entity** (a real directory under the scope's `.agents/skills/` root) plus explicit **projections** (symlinks by default) into agent roots. CLI mutations default to the `project` scope; pass `--global` to target the user-global scope.
 

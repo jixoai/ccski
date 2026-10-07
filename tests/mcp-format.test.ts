@@ -27,6 +27,32 @@ describe("MCP formatting helpers", () => {
     expect(result).toContain("Some instructions.");
   });
 
+  it("strips the raw frontmatter block from the served body (field visibility)", () => {
+    const withFrontmatter: Skill = {
+      ...baseSkill,
+      content: [
+        "---",
+        "name: demo",
+        "description: Demo skill",
+        "internalToken: super-secret-token-7f3a",
+        "---",
+        "",
+        "# Demo",
+        "Body instructions.",
+        "",
+      ].join("\n"),
+    };
+    const result = formatSkillContent(withFrontmatter);
+
+    // 领域头在场；正文在场；原始 frontmatter（含自定义 token 字段）不重复进结果
+    expect(result).toContain("name: demo");
+    expect(result).toContain("Body instructions.");
+    expect(result).not.toContain("super-secret-token-7f3a");
+    expect(result).not.toContain("internalToken");
+    expect(result).not.toContain("description: Demo skill");
+    expect(result).not.toContain("---");
+  });
+
   it("includes plugin metadata when present", () => {
     const pluginSkill: Skill = {
       ...baseSkill,

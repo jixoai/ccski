@@ -1,8 +1,8 @@
 /**
  * 文件意图（2026-10-07）
- * 用户原始需求 [2026-10-07]：「3.0 移除 2.x mutation 入口（installSkills/removeSkills
- * (旧)/toggleSkills）——不造兼容胶层（§8）；保留面：listSkills/getSkillInfo/
- * validateSkill/searchSkills」（批 5 2.x 入口迁移裁决）
+ * 用户原始需求 [2026-10-07]：「3.0 移除 2.x mutation 入口——不造兼容胶层（§8）；
+ * 保留面：listSkills/getSkillInfo/validateSkill/searchSkills」（批 5 2.x 入口迁移
+ * 裁决；退役符号名不在注释中复述，避免进入发版产物）
  * 正交意图：
  *   [1] 保留面的选项/结果类型（list/info/search/validate + 过滤器）
  *   [2] workflow 安装类型（3.0 边界外，随 workflow-install.ts 保留）
@@ -23,9 +23,14 @@ export interface FilterOptions {
 
 export interface ListOptions extends RegistryInput, FilterOptions {}
 
+/** info 投影面选项（Field visibility contract：投影恒不含正文；正文走 readSkillContent） */
 export interface InfoOptions extends RegistryInput, FilterOptions {
   name: string;
-  full?: boolean;
+}
+
+/** 显式文件读取面选项（spec: file contents only via explicit file-read paths） */
+export interface SkillContentOptions extends RegistryInput, FilterOptions {
+  name: string;
 }
 
 export interface SearchOptions extends RegistryInput, FilterOptions {
@@ -75,6 +80,11 @@ export interface WorkflowInstallResult {
   failed: number;
 }
 
+/**
+ * info 投影 DTO（Field visibility contract）：只含领域字段——identity/mode/路径/
+ * 结构标记；SKILL.md 正文与 frontmatter 载荷不进本 DTO（显式读取走
+ * readSkillContent → SkillContentResult）。
+ */
 export interface SkillInfoResult {
   name: string;
   description: string;
@@ -87,6 +97,14 @@ export interface SkillInfoResult {
   hasScripts: boolean;
   hasAssets: boolean;
   pluginInfo: SkillMetadata["pluginInfo"] | null;
+}
+
+/** 显式文件读取 DTO（SKILL.md 全文，含 frontmatter；仅本面携带正文） */
+export interface SkillContentResult {
+  name: string;
+  path: string;
+  size: number;
+  disabled: boolean;
   content: string;
 }
 

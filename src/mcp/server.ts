@@ -8,6 +8,7 @@ import { createServer as createHttpServer } from "node:http";
 import { parse } from "node:url";
 import type { SkillRegistryOptions } from "../core/registry.js";
 import { SkillRegistry } from "../core/registry.js";
+import { stripFrontmatterBlock } from "../core/parser.js";
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../types/errors.js";
 import type { Skill } from "../types/skill.js";
 import {
@@ -343,5 +344,7 @@ export function formatSkillContent(skill: Skill): string {
     .filter(Boolean)
     .join("\n");
 
-  return `${header}\n\n${skill.content}`;
+  // Field visibility contract：frontmatter 字段只在文档读取面出现，不重复进
+  // agent 工具结果——skill 工具输出 = 领域头 + 正文（无原始 frontmatter 块）。
+  return `${header}\n\n${stripFrontmatterBlock(skill.content)}`;
 }

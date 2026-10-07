@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { getSkillInfo } from "../src/api/info.js";
+import { getSkillInfo, readSkillContent } from "../src/api/info.js";
 import { listSkills } from "../src/api/list.js";
 import { searchSkills } from "../src/api/search.js";
 import { validateSkill } from "../src/api/validate.js";
@@ -68,27 +68,34 @@ describe("programmatic API", () => {
     expect(skills[0]?.name).toBe("embedded:provider-scoped");
   });
 
-  it("returns info payload with preview and full content", async () => {
+  it("returns domain-only info DTO and separates the explicit file-read face", async () => {
     const bodyLines = Array.from({ length: 25 }, (_, idx) => `line-${idx + 1}`).join("\n");
     createSkill(cwd, "alpha", false, bodyLines);
 
-    const preview = await getSkillInfo({
+    // Field visibility contract：info 投影恒为领域字段 DTO，无正文/frontmatter
+    const info = await getSkillInfo({
       name: "alpha",
       skillDir: [cwd],
       scanDefaultDirs: false,
       claudePluginsFile: join(cwd, "missing-plugins.json"),
     });
-    expect(preview.name).toBe("other:alpha");
-    expect(preview.content).toContain("name: alpha");
+    expect(info.name).toBe("other:alpha");
+    expect("content" in info).toBe(false);
+    expect(JSON.stringify(info)).not.toContain("line-1");
+    expect(JSON.stringify(info)).not.toContain("name: alpha");
 
-    const full = await getSkillInfo({
+    // 显式文件读取面：正文只在这里出现（全文含 frontmatter）
+    const doc = await readSkillContent({
       name: "alpha",
-      full: true,
       skillDir: [cwd],
       scanDefaultDirs: false,
       claudePluginsFile: join(cwd, "missing-plugins.json"),
     });
-    expect(full.content).toContain("line-25");
+    expect(doc.name).toBe("other:alpha");
+    expect(doc.content).toContain("name: alpha");
+    expect(doc.content).toContain("line-25");
+    expect(doc.disabled).toBe(false);
+    expect(doc.size).toBeGreaterThan(0);
   });
 
   it("searches by metadata and content", async () => {

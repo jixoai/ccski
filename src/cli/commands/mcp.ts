@@ -5,7 +5,8 @@ import { buildRegistryOptions } from "../registry-options.js";
 
 export interface McpArgs extends SkillRegistryOptions {
   refreshInterval?: number;
-  noRefresh?: boolean;
+  /** --no-refresh 禁用自动刷新（yargs negation：argv.refresh === false） */
+  refresh?: boolean;
   noPlugins?: boolean;
   skillDir?: string[];
   scanDefaultDirs?: boolean;
@@ -24,7 +25,7 @@ export async function mcpCommand(argv: ArgumentsCamelCase<McpArgs>): Promise<voi
   const options = buildRegistryOptions(argv);
   const serverOptions = {
     ...options,
-    autoRefresh: argv.noRefresh ? false : true,
+    autoRefresh: argv.refresh === false ? false : true,
     transport: argv.transport,
     port: argv.port,
     host: argv.host,

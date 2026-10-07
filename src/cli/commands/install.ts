@@ -3,7 +3,8 @@
  * 用户原始需求 [2026-10-07]：「CLI 命令名保留、内部切换内核 API（语义破坏在 3.0 边界
  * 内）」+「CLI 投影默认全集：detected + universal（registry 可见性过滤）+ no-detection
  * --yes registry 退化 + 逐 agent 部分成功 per-agent 收据 + 无 global 安装能力 agent
- * 失败条目——对齐 g0 parity 钉值」（批 5 tasks.md:43/45；2.x installSkills 入口移除）
+ * 失败条目——对齐 g0 parity 钉值」（批 5 tasks.md:43/45；2.x mutation 入口已按 3.0
+ * 裁决退役，不在此提及退役符号名）
  * 正交意图：
  *   [1] `install <source>` 内核化：ensureEntity（--force → 显式 replace，取 NAME_EXISTS
  *       载荷的 expectedRevision）+ projectEntity（agent 注册表目标集去重 roots，一次

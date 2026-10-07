@@ -24,7 +24,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "ts": "tsc --noEmit",
-    "lint": "echo 'Linting not configured yet'",
+    "lint": "tsc --noEmit --pretty false",
     "fmt": "prettier --write .",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

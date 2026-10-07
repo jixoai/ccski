@@ -13,10 +13,13 @@ import {
 } from "../../utils/format.js";
 import { compareSkillProviders } from "../../utils/providers.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
+import { redactSkillMetadataPaths } from "../redact.js";
 
 export interface ListArgs extends ListOptions {
   format?: "plain" | "json";
   json?: boolean;
+  /** 粘贴/日志脱敏：JSON 输出不含绝对路径（Field visibility contract） */
+  redactPaths?: boolean;
   noColor?: boolean;
   color?: boolean;
 }
@@ -30,7 +33,9 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
   const format = argv.json ? "json" : (argv.format ?? "plain");
 
   if (format === "json") {
-    console.log(JSON.stringify(skills, null, 2));
+    const payload =
+      argv.redactPaths === true ? skills.map((s) => redactSkillMetadataPaths(s)) : skills;
+    console.log(JSON.stringify(payload, null, 2));
     return;
   }
 

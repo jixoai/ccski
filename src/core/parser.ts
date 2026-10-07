@@ -7,6 +7,24 @@ import type { SkillFrontmatter } from "../types/skill.js";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
+/**
+ * 剥离文件头的 frontmatter 块（行级扫描，闭界符为整行 `---` 或 `...`，与
+ * gray-matter 语义对齐）；无 frontmatter 形态原样返回。MCP skill 工具等
+ * agent 面用它避免把原始 frontmatter（任意自定义字段）重复进工具结果。
+ */
+export function stripFrontmatterBlock(source: string): string {
+  if (!source.startsWith("---")) return source;
+  const lines = source.split("\n");
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]?.replace(/\r$/, "") ?? "";
+    if (line !== "---" && line !== "...") continue;
+    const rest = lines.slice(i + 1);
+    if (rest[0] === "") rest.shift();
+    return rest.join("\n");
+  }
+  return source;
+}
+
 function normalizeDescription(description: string): string {
   return description.replace(/\s+/g, " ").trim();
 }

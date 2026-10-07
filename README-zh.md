@@ -68,7 +68,7 @@ MCP 插件配置示例（Codex/Cursor/Windsurf/VS Code）：
 | 命令 | 用途 |
 | --- | --- |
 | `ccski list` | 列出已发现技能（含 mode/ownership/provenance 元数据） |
-| `ccski info <name>` | 查看技能元数据和内容预览 |
+| `ccski info <name>` | 查看技能领域元数据（`--full` 打印 SKILL.md 全文） |
 | `ccski search <query>` | 按名称/描述搜索（可选 `--content` 搜正文） |
 | `ccski validate <path>` | 校验 SKILL.md 或技能目录 |
 | `ccski install` | 把 ccski workflow 块写入 agent 提示词文件（3.0 不变） |
@@ -81,7 +81,7 @@ MCP 插件配置示例（Codex/Cursor/Windsurf/VS Code）：
 | `ccski import <path> --claim` | 收编未登记 symlink 为 ccski 投影（inode + hash 守卫） |
 | `ccski mcp` | 启动 MCP 服务器（stdio/http/sse） |
 
-所有命令支持 `--json` 输出类型化收据。
+携带收据的命令均支持 `--json` 类型化输出：`list`、`info`、`validate`、`install`、`enable`、`disable`、`migrate`、`gc`、`state repair`、`import` 用 `--json`；`search` 用 `--format=json`；`mcp` 是常驻服务器（无 JSON 模式）。`list`/`info` 另支持 `--redact-paths`（相对路径输出，便于粘贴/日志）。
 
 ### 安装技能
 
@@ -185,7 +185,7 @@ npm lock:       .skill-lock.json                         （唯一写入者：sk
 - 提供可编程 API，见文末 [API 文档](#api-文档)（或文档站点）获取用法示例。
 - Claude 用户：建议 `ccski mcp --exclude=claude`，避免回显内置 Claude skills。
 - Codex 用户：建议 `ccski mcp --exclude=codex`，避免回显内置 Codex skills。
-- 所有命令支持 `--json` 便于脚本化。
+- 携带收据的命令支持 `--json`（`search` 用 `--format=json`）；`list`/`info` 另支持 `--redact-paths`。
 - 用 `--no-color` 关闭颜色，或 `--color` 强制开启。
 - 详细技术与设计理念请查看 `SPEC.md`。
 

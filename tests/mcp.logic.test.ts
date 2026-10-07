@@ -30,7 +30,7 @@ describe("mcp helpers", () => {
     expect(desc).toContain("<location>global</location>");
   });
 
-  it("formats skill content with base directory", () => {
+  it("formats skill content with base directory (frontmatter stripped, body served)", () => {
     const dir = createSkillDir("bravo", "bravo description");
     const registry = new SkillRegistry({ customDirs: [dir], scanDefaultDirs: false, skipPlugins: true });
     const skill = registry.load("bravo");
@@ -38,6 +38,9 @@ describe("mcp helpers", () => {
     const formatted = formatSkillContent(skill);
     expect(formatted).toContain(`name: ${skill.name}`);
     expect(formatted).toContain(`path: ${skill.path}`);
-    expect(formatted).toContain("bravo description");
+    // Field visibility contract：正文在场；原始 frontmatter 块不重复进工具结果
+    expect(formatted).toContain(`# bravo`);
+    expect(formatted).not.toContain("description: bravo description");
+    expect(formatted).not.toContain("---");
   });
 });

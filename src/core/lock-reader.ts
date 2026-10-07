@@ -14,6 +14,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
+import { sanitizeSourceUrl } from "./source-url.js";
 import { CcskiError } from "../types/errors.js";
 
 /** npm:skills lock 文件名（`$XDG_STATE_HOME/skills/` 或 `~/.agents/` 下） */
@@ -137,7 +138,9 @@ export async function readSkillLock(lockPath: string): Promise<LockReadResult> {
       "updatedAt",
     ] as const) {
       const value = provenance.data[key];
-      if (typeof value === "string") projected[key] = value;
+      if (typeof value !== "string") continue;
+      // Field visibility contract：sourceUrl 离开内核前剥 userinfo/query（投影向）
+      projected[key] = key === "sourceUrl" ? sanitizeSourceUrl(value) : value;
     }
     skills.push(projected);
   }

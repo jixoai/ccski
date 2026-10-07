@@ -70,6 +70,7 @@ import {
 import { CCSKI_RESIDUE_MARKER_FILENAME } from "../core/discovery.js";
 import { emptyState, StateStore } from "../core/state-store.js";
 import { parseSkillFile } from "../core/parser.js";
+import { sanitizeSourceUrl } from "../core/source-url.js";
 
 /** 与发现层保留名精确 glob 对齐（E6：.ccski-staging-* / .ccski-backup-*） */
 const STAGING_PREFIX = ".ccski-staging-";
@@ -197,12 +198,21 @@ function toSnapshot(record: EntityRecord): EntitySnapshot {
     folderName: record.folderName,
     path: record.path,
     revision: record.revision,
-    provenance: record.provenance,
+    // Field visibility contract：投影向防御性清洗（历史 state 可能存有未清洗 URL）
+    provenance: sanitizeProvenance(record.provenance),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
 }
 export { toSnapshot };
+
+/** provenance 投影清洗：sourceUrl 剥 userinfo/query（保存侧在写入前已清洗） */
+function sanitizeProvenance(provenance: EntityProvenance): EntityProvenance {
+  if (provenance.sourceUrl === undefined) return provenance;
+  const sanitized = sanitizeSourceUrl(provenance.sourceUrl);
+  if (sanitized === provenance.sourceUrl) return provenance;
+  return { ...provenance, sourceUrl: sanitized };
+}
 
 function describeExisting(record: EntityRecord): EnsureEntityExisting {
   return {
@@ -456,12 +466,15 @@ export async function ensureEntity(options: EnsureEntityOptions): Promise<Ensure
   const entityRoot = entityRootFor(scopeBase);
   const entityPath = join(entityRoot, folderName);
   // source 身份 = provenance.source 字符串原样比较（本地缺省 = resolve(dir)）；
-  // 非 URL/路径形态的 source 原样保留，不做 resolve 改写。
+  // 非 URL/路径形态的 source 原样保留，不做 resolve 改写。sourceUrl 保存前清洗
+  // （Field visibility contract：userinfo/query 不落 state、不离开内核）。
   const sourceIdentity = options.source.source ?? sourceDir;
   const provenance: EntityProvenance = {
     source: sourceIdentity,
     ...(options.source.sourceType !== undefined ? { sourceType: options.source.sourceType } : {}),
-    ...(options.source.sourceUrl !== undefined ? { sourceUrl: options.source.sourceUrl } : {}),
+    ...(options.source.sourceUrl !== undefined
+      ? { sourceUrl: sanitizeSourceUrl(options.source.sourceUrl) }
+      : {}),
     ...(options.source.skillPath !== undefined ? { skillPath: options.source.skillPath } : {}),
     installedAt: isoNow(),
     updatedAt: isoNow(),

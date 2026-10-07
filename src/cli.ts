@@ -27,6 +27,11 @@ const listModule: CommandModule<unknown, ListArgs> = {
         default: "plain" as const,
       })
       .option("json", { type: "boolean", default: false, description: "Output JSON" })
+      .option("redact-paths", {
+        type: "boolean",
+        default: false,
+        description: "Redact absolute paths (relative/home/basename output for paste & logs)",
+      })
       .option("all", {
         type: "boolean",
         default: false,
@@ -58,8 +63,17 @@ const infoModule: CommandModule<unknown, InfoArgs> = {
   builder: (cmd: Argv<unknown>): Argv<InfoArgs> =>
     cmd
       .positional("name", { type: "string", demandOption: true })
-      .option("full", { type: "boolean", default: false, description: "Show full SKILL.md" })
+      .option("full", {
+        type: "boolean",
+        default: false,
+        description: "Print the full SKILL.md document (explicit file read; not with --json)",
+      })
       .option("json", { type: "boolean", default: false })
+      .option("redact-paths", {
+        type: "boolean",
+        default: false,
+        description: "Redact absolute paths (relative/home/basename output for paste & logs)",
+      })
       .option("include", { type: "array", string: true, description: "Include filters" })
       .option("exclude", { type: "array", string: true, description: "Exclude filters" })
       .option("all", {
@@ -147,7 +161,11 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
         description: "Auto refresh interval (ms)",
         default: 30000,
       })
-      .option("no-refresh", { type: "boolean", description: "Disable auto refresh" })
+      .option("refresh", {
+        type: "boolean",
+        default: true,
+        description: "Auto refresh the registry (use --no-refresh to disable)",
+      })
       .option("transport", {
         choices: ["stdio", "http", "sse"] as const,
         default: "stdio" as const,

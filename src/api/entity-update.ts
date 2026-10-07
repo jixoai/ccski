@@ -12,9 +12,9 @@
  *       回退）——guard 过 → swapEntityIntoPlace 换新副本（backup 回滚语义同实体）并刷
  *       entityRevision/copyHash/copyIno；pinned → PINNED skip 副本不动；disabled →
  *       PROJECTION_DISABLED skip（副本保持禁用形态，enable 后再跑 update 收敛）；
- *       guard 不符 → GUARD_PROJECTION 副本不动；部分成功是常态，「atomic reinstall」
- *       表述禁用。实体内容未变时跳过 swap 但副本收敛照常（滞后副本的收敛入口）；
- *       实体与全部记录已收敛时零 state 写入（status unchanged）
+ *       guard 不符 → GUARD_PROJECTION 副本不动；更新按副本逐份收敛，部分成功是常态
+ *       （不宣称整装一步到位）。实体内容未变时跳过 swap 但副本收敛照常（滞后副本的
+ *       收敛入口）；实体与全部记录已收敛时零 state 写入（status unchanged）
  *   [3] 记录收敛（disabled-after-update）：link 记录（含 disabled）entityRevision 刷新
  *       + stale 清除 + disabled 保留——update 后 enable 直接可用；物化 disabled 记录
  *       不动（保持旧 revision，enable 后 update 收敛）
@@ -36,6 +36,7 @@ import {
 } from "../core/entity-state.js";
 import { emptyState, StateStore } from "../core/state-store.js";
 import { parseSkillFile } from "../core/parser.js";
+import { sanitizeSourceUrl } from "../core/source-url.js";
 import {
   commitTransform,
   materializeCopy,
@@ -444,7 +445,10 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
   const refreshedProvenance = {
     source: sourceIdentity,
     ...(options.source.sourceType !== undefined ? { sourceType: options.source.sourceType } : {}),
-    ...(options.source.sourceUrl !== undefined ? { sourceUrl: options.source.sourceUrl } : {}),
+    // Field visibility contract：sourceUrl 保存前清洗（userinfo/query 不落 state）
+    ...(options.source.sourceUrl !== undefined
+      ? { sourceUrl: sanitizeSourceUrl(options.source.sourceUrl) }
+      : {}),
     ...(options.source.skillPath !== undefined ? { skillPath: options.source.skillPath } : {}),
     installedAt: entityRecord.provenance.installedAt,
     updatedAt,

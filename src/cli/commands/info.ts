@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { ArgumentsCamelCase } from "yargs";
-import { getSkillInfo } from "../../api/info.js";
+import { getSkillInfo, readSkillContent } from "../../api/info.js";
 import type { InfoOptions } from "../../api/types.js";
 import { SkillRegistry } from "../../core/registry.js";
 import { AmbiguousSkillNameError, SkillNotFoundError } from "../../types/errors.js";
@@ -10,10 +10,15 @@ import { dim, formatBytes, setColorEnabled, success } from "../../utils/format.j
 import { providerNamesFromSkills } from "../../utils/providers.js";
 import { resolveSkill } from "../../utils/resolution.js";
 import { formatSkillLabel } from "../../utils/skill-id.js";
+import { redactPathForDisplay } from "../redact.js";
 import { buildRegistryOptions } from "../registry-options.js";
 
 export interface InfoArgs extends InfoOptions {
+  /** 显式文档读取面：打印 SKILL.md 全文（与 --json 互斥） */
+  full?: boolean;
   json?: boolean;
+  /** 粘贴/日志脱敏：输出不含绝对路径（Field visibility contract） */
+  redactPaths?: boolean;
   noColor?: boolean;
   color?: boolean;
 }
@@ -24,6 +29,16 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
   }
   if (argv.color) {
     setColorEnabled(true);
+  }
+
+  // --full（文档读取面）与 --json（投影面）互斥；不用 yargs conflicts——默认值
+  // 注入的键会误触 conflicts 检查
+  if (argv.full === true && argv.json === true) {
+    console.error(
+      "Error: --full and --json are mutually exclusive (--json returns the domain projection; --full prints the SKILL.md document)"
+    );
+    process.exitCode = 1;
+    return;
   }
 
   const includeDisabled = Boolean(argv.all || argv.disabled);
@@ -43,18 +58,22 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
     const skill = registry.load(`${resolved.provider}:${resolved.name}`);
     const skillFile = join(skill.path, "SKILL.md");
     const stats = statSync(skillFile);
+    const redact = argv.redactPaths === true;
 
     if (argv.json) {
+      // 投影面 JSON：领域字段 DTO（恒无正文）；--redact-paths 脱敏路径
       const payload = await getSkillInfo(argv);
-      console.log(JSON.stringify(payload, null, 2));
+      const output = redact ? { ...payload, path: redactPathForDisplay(payload.path) } : payload;
+      console.log(JSON.stringify(output, null, 2));
       return;
     }
 
+    const displayPath = redact ? redactPathForDisplay(skillFile) : skillFile;
     console.log(`\n${formatSkillLabel(skill, { includeProvider: true })}`);
     console.log(skill.description);
     console.log(dim(`Location: ${skill.location}`));
     console.log(dim(`Provider: ${skill.provider}`));
-    console.log(dim(`Path: ${skillFile}`));
+    console.log(dim(`Path: ${displayPath}`));
     console.log(dim(`Size: ${formatBytes(stats.size)}`));
     console.log(dim(`Has references: ${skill.hasReferences}`));
     console.log(dim(`Has scripts: ${skill.hasScripts}`));
@@ -66,15 +85,13 @@ export async function infoCommand(argv: ArgumentsCamelCase<InfoArgs>): Promise<v
     }
 
     console.log();
-    if (argv.full) {
-      console.log(skill.content);
+    if (argv.full === true) {
+      // 显式文档读取面：--full 打印 SKILL.md 全文
+      const doc = await readSkillContent(argv);
+      console.log(doc.content);
     } else {
-      const preview = skill.content.split("\n").slice(0, 20).join("\n");
-      console.log(preview);
-      const remaining = skill.content.split("\n").length - 20;
-      if (remaining > 0) {
-        console.log(dim(`\n… (${remaining} more lines, use --full to show all)`));
-      }
+      // 投影面默认不嵌正文（Field visibility contract）；正文走显式读取
+      console.log(dim("SKILL.md body omitted (field visibility contract); use --full to read it."));
     }
     console.log();
   } catch (error) {

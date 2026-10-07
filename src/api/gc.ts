@@ -7,8 +7,11 @@
  *   [1] gc 提案面（spec: Explicit claim, repair, and gc contracts）：只扫 state
  *       登记过的 roots（GC 永不猜路径），roots 消失 → 记录退役提案；禁自动删除
  *       （dry-run 之外无执行半区 → DRY_RUN_REQUIRED typed 拒绝）
- *   [2] GC_UNKNOWN_REFERENCE warning：注册根上指向实体的未注册链/未注册条目——
- *       阻塞实体 GC 的引用以 typed warning 呈现（收编走 import --claim / migrate）
+ *   [2] GC_UNKNOWN_REFERENCE warning：注册根上指向实体的**未注册**条目——已登记
+ *       投影（projections 表命中）与实体本体（entity-local 目录形态；2026-10-07
+ *       P0-2 修正——正常 canonical entity 与正常 link 投影零误报）都不是未知引用；
+ *       实体根内的 alias symlink 与注册根上的野链仍如实上报，阻塞实体 GC 的引用
+ *       以 typed warning 呈现（收编走 import --claim / migrate）
  *   [3] 提案 = 纯读报告（state 字节零变化），供人决策后走 repair/remove 收敛
  * 妥协声明：提案不含实体退役（实体删除走 deleteEntity 受 GUARD_ENTITY，提案无法
  * 携带 expectedRevision 的授权语义）；disabled link 投影路径缺席是禁用的物理形态
@@ -21,9 +24,12 @@ import { isCcskiReservedName } from "../core/discovery.js";
 import {
   type EntityRecord,
   type EntityScope,
+  type ProjectionRecord,
   entityRootFor,
   parseEntityTable,
   parseProjectionTable,
+  projectionRecordKey,
+  projectionRootId,
   resolveScopeBase,
 } from "../core/entity-state.js";
 import { emptyState, StateStore } from "../core/state-store.js";
@@ -71,18 +77,27 @@ export type GcResult =
       proposals: GcProposal[];
       /** 阻塞实体 GC 的未知引用（typed warning；不阻塞本次提案本身） */
       unknownReferences: GcUnknownReference[];
-      /** proposals 为空 = state 与注册根一致，无清理需求 */
+      /** 无退役提案且无未知引用 warning（无可决策事项） */
       clean: boolean;
       generation: number;
     }
   | { kind: "error"; code: GcFailureCode; message: string };
 
-/** 注册根上指向实体目录的未注册条目观察（symlink 与实目录两形态） */
+/**
+ * 注册根上指向实体目录的未注册条目观察（symlink 与实目录两形态）。
+ * 已登记条目不是未知引用：
+ * - 注册投影（projections 表按 <rootId>:<folderName> 命中）= known reference；
+ * - entity root 扫描上的实体本体目录（entity-local 形态）= 实体记录自身
+ *   （isEntityRoot 豁免；alias symlink 仍如实上报）。
+ */
 function findUnknownReferencesAtRoot(
   rootPath: string,
-  entities: Map<string, EntityRecord>
+  entities: Map<string, EntityRecord>,
+  projections: Map<string, ProjectionRecord>,
+  options: { isEntityRoot?: boolean } = {}
 ): GcUnknownReference[] {
   const found: GcUnknownReference[] = [];
+  const rootId = projectionRootId(resolve(rootPath));
   let entries: Array<DirentLike>;
   try {
     entries = readdirSync(rootPath, { withFileTypes: true }) as unknown as Array<DirentLike>;
@@ -94,6 +109,8 @@ function findUnknownReferencesAtRoot(
     const entryPath = join(rootPath, entry.name);
     const entity = entities.get(entry.name);
     if (entity === undefined) continue; // 只关心指向 ccski 实体的条目
+    // 该根上此 folderName 已有投影记录 = known reference（漂移归 discovery/repair 面）
+    if (projections.has(projectionRecordKey(rootId, entry.name))) continue;
     const entityReal = realpathSafe(entity.path);
     let unknown = false;
     let detail: string;
@@ -114,6 +131,7 @@ function findUnknownReferencesAtRoot(
     } else if (entry.isDirectory()) {
       const entryReal = realpathSafe(entryPath);
       if (entityReal === null || entryReal !== entityReal) continue;
+      if (options.isEntityRoot === true) continue; // entity-local 本体（P0-2：实体目录不是未知引用）
       unknown = true;
       detail = `unregistered real directory ${entryPath} occupies the entity path shape; adoption belongs to migrate; blocks entity GC`;
     } else {
@@ -202,7 +220,7 @@ export async function gcPropose(options: {
       }
       if (!rootMissing && !scannedRoots.has(rootPath)) {
         scannedRoots.add(rootPath);
-        unknownReferences.push(...findUnknownReferencesAtRoot(rootPath, entities));
+        unknownReferences.push(...findUnknownReferencesAtRoot(rootPath, entities, projections));
       }
     }
     if (rootMissing) {
@@ -220,11 +238,17 @@ export async function gcPropose(options: {
     }
   }
 
-  // scope 实体根本身也是注册观察面（entity-local 的家）；只做未知引用观察
+  // scope 实体根本身也是注册观察面（entity-local 的家）；只做未知引用观察，
+  // 且实体本体（entity-local 目录形态）不是未知引用（P0-2：正常 canonical
+  // entity 零 GC_UNKNOWN_REFERENCE）；实体根内的 alias symlink 仍如实上报
   const entityRoot = entityRootFor(scopeBase);
   const entityRootResolved = resolve(entityRoot);
   if (!scannedRoots.has(entityRootResolved) && lstatSafe(entityRootResolved) !== null) {
-    unknownReferences.push(...findUnknownReferencesAtRoot(entityRootResolved, entities));
+    unknownReferences.push(
+      ...findUnknownReferencesAtRoot(entityRootResolved, entities, projections, {
+        isEntityRoot: true,
+      })
+    );
   }
 
   return {
@@ -233,7 +257,9 @@ export async function gcPropose(options: {
     scope,
     proposals,
     unknownReferences,
-    clean: proposals.length === 0,
+    // clean = 无可决策事项：无退役提案且无未知引用 warning（有 warning 却
+    // clean 是自相矛盾的诚实性缺陷）
+    clean: proposals.length === 0 && unknownReferences.length === 0,
     generation: base.generation,
   };
 }

@@ -5,8 +5,8 @@
  * - 内核面（批 3/4）：ensureEntity / projectEntity / removeEntityProjections /
  *   deleteEntity / toggleEntityProjection / updateEntity
  * - 批 5 命令面：migrateLegacyEntries / gcPropose / repairState / claimLink
- * - 2.x mutation 入口（installSkills / installSkillDir / removeSkills / toggleSkills）
- *   按 3.0 裁决移除，不造兼容胶层（§8）；其语义由内核面 + CLI 命令承载
+ * - 2.x mutation 入口按 3.0 裁决整体移除，不造兼容胶层（§8）；其语义由内核面 +
+ *   CLI 命令承载（退役符号名不在本文件注释中复述，避免进入发版产物）
  */
 export {
   claimLink,
@@ -72,7 +72,7 @@ export {
   type GcResult,
   type GcUnknownReference,
 } from "./gc.js";
-export { getSkillInfo } from "./info.js";
+export { getSkillInfo, readSkillContent } from "./info.js";
 export { listSkills } from "./list.js";
 export { startMCPServer } from "./mcp.js";
 export type { MCPServerOptions } from "./mcp.js";
@@ -95,6 +95,7 @@ export {
   type RepairFailureCode,
   type RepairResult,
 } from "./repair.js";
+export { PUBLIC_RESULT_CODES, type ResultCode } from "./result-codes.js";
 export { searchSkills, searchSkillsDetailed } from "./search.js";
 export type {
   AgentInstructionScope,
@@ -104,6 +105,8 @@ export type {
   ListOptions,
   SearchOptions,
   SearchResultItem,
+  SkillContentOptions,
+  SkillContentResult,
   SkillInfoResult,
   ValidateOptions,
   ValidateResult,
