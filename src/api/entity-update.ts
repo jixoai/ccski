@@ -129,7 +129,7 @@ export type EntityUpdateResult =
        * 清理（删除用户内容）；应把该 root 视为不可判定并 fail closed。仅诊断用途，
        * 不驱动内核决策（内核行为不变：只遍历有效记录）。
        */
-      degradedProjectionState?: boolean;
+      degradedProjectionState: boolean;
       /** 无法解析的投影记录键名（invalidKeys 如实透出；诊断用途） */
       invalidProjectionKeys?: string[];
     }
@@ -343,7 +343,7 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
   const degradedReport =
     projectionTable.invalidKeys.length > 0
       ? { degradedProjectionState: true, invalidProjectionKeys: [...projectionTable.invalidKeys] }
-      : undefined;
+      : { degradedProjectionState: false };
   const receipts: EntityUpdateProjectionResult[] = [];
   const pendingRecordUpdates = new Map<string, Record<string, unknown>>();
 

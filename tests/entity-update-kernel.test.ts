@@ -708,7 +708,7 @@ describe("P0-C 降级投影记录显式上报（终审第三轮；宿主 fail-cl
     cleanupSandbox(fx.sandbox);
   });
 
-  it("干净基线：无损坏记录 → degradedProjectionState 不出现（字段缺省）", async () => {
+  it("干净基线：无损坏记录 → degradedProjectionState 显式 false（终审第三轮 P1：宿主唯一放行条件），invalidProjectionKeys 缺省", async () => {
     const fx = await setupUpdateFixture("upd-p0c-c");
     const ok = expectUpdateOk(
       await updateEntity({
@@ -718,7 +718,7 @@ describe("P0-C 降级投影记录显式上报（终审第三轮；宿主 fail-cl
         ...scopeOpts(fx.sandbox),
       })
     );
-    expect(ok.degradedProjectionState).toBeUndefined();
+    expect(ok.degradedProjectionState).toBe(false);
     expect(ok.invalidProjectionKeys).toBeUndefined();
     cleanupSandbox(fx.sandbox);
   });

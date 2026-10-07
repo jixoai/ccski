@@ -122,7 +122,7 @@ Entity-table degradation is symmetric: when the entity table contains records th
 
 #### Scenario: Degraded projection records are reported, not silently dropped
 - **WHEN** `updateEntity` succeeds while the state projection table contains a record that fails schema parsing
-- **THEN** the ok result carries `degradedProjectionState: true` and the invalid record's key in `invalidProjectionKeys`, that root produces no projection receipt, and the raw unparsable entry remains in state unchanged.
+- **THEN** the ok result carries `degradedProjectionState: true` and the invalid record's key in `invalidProjectionKeys`; on a healthy projection table the ok result carries `degradedProjectionState: false` explicitly (the field is a required boolean so callers can distinguish "proven healthy" from "unknown"), while `invalidProjectionKeys` stays absent, that root produces no projection receipt, and the raw unparsable entry remains in state unchanged.
 
 ### Requirement: Frozen same-name replace state machine
 Installing a logical name that already exists with a different source MUST fail typed `NAME_EXISTS` unless an explicit `replace` with `expectedRevision` of the current entity is provided. A replace: swaps entity content at the stable path (with backup restore on failure — the old entity remains usable), refreshes state revision/provenance, preserves per-projection `disabled` records, marks link projections' recorded revisions stale (next verify reports `STALE_PROJECTION`; links resolve to new content by path semantics), leaves materialized and pinned copies untouched, never touches external live-links, and does not write npm lock (host update flows report `lockSyncPending`).
