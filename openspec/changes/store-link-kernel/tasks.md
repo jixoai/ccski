@@ -4,12 +4,12 @@
 
 ## 批 0 · G0 契约冻结门（实现前，全部完成才允许批 1）
 
-- [ ] specs/entity-projection-kernel 通过 `openspec validate store-link-kernel --strict` — openspec/ — P0-1
-- [ ] npm 四项实证 + 默认投影全集分支（detected+universal / no-detection --yes registry 退化 / showInUniversalList 过滤 / per-agent 部分成功收据 / 无 global 能力 agent 失败条目）钉成 parity fixture：**1.7.1 实跑记录输入与期望输出** — tests/parity-npm-skills.test.ts — P1-2
-- [ ] folder-hash fixture 收据：输入树 + 期望 digest 由 1.7.1 实跑钉死成**收据文件**（排序相对路径 + path bytes + file bytes、仅 regular files、跳 .git/node_modules）+ 对宿主的公开导出接口**定名**（仅命名与签名，实现在批 1） — tests/fixture 收据 — P1-6
-- [ ] typed 词表闭合清单（收据文件，无生产实现）：NAME_COLLISION/NAME_EXISTS/SCOPE_REQUIRED/STATE_GENERATION_CONFLICT/STATE_RECOVERY_REQUIRED/ENTITY_REVISED/STALE_PROJECTION/PINNED/FOREIGN_OWNERSHIP/TARGET_DENIED/symlink-unavailable/LOCK_VERSION_UNSUPPORTED/GUARD_MISMATCH 族（GUARD_ENTITY/GUARD_PROJECTION）/CLAIM_CONFLICT/REPAIR_CONFIRM_REQUIRED/GC_UNKNOWN_REFERENCE — 与 spec 逐条对齐的核对表 — G0
-- [ ] replace/claim/repair/gc 状态机评审（design 冻结版 vs spec 一致性人工核对表） — design.md + specs — P1-3/P1-4
-- [ ] 字段可见性契约测试清单（CLI/MCP/list·info/文件读取 × 领域字段/provenance 子集/redact-paths/frontmatter 隔离/**sourceUrl 脱敏三类输入**（userinfo/credentials/query strings，对齐 spec「Source URL sanitization」Scenario）） — specs + tests 清单 — P1-1
+- [x] specs/entity-projection-kernel 通过 `openspec validate store-link-kernel --strict` — openspec/ — P0-1
+- [x] npm 四项实证 + 默认投影全集分支（detected+universal / no-detection --yes registry 退化 / showInUniversalList 过滤 / per-agent 部分成功收据 / 无 global 能力 agent 失败条目）钉成 parity fixture：**1.7.1 实跑记录输入与期望输出** — tests/parity-npm-skills.test.ts — P1-2
+- [x] folder-hash fixture 收据：输入树 + 期望 digest 由 1.7.1 实跑钉死成**收据文件**（排序相对路径 + path bytes + file bytes、仅 regular files、跳 .git/node_modules）+ 对宿主的公开导出接口**定名**（仅命名与签名，实现在批 1） — tests/fixture 收据 — P1-6
+- [x] typed 词表闭合清单（收据文件，无生产实现）：NAME_COLLISION/NAME_EXISTS/SCOPE_REQUIRED/STATE_GENERATION_CONFLICT/STATE_RECOVERY_REQUIRED/ENTITY_REVISED/STALE_PROJECTION/PINNED/FOREIGN_OWNERSHIP/TARGET_DENIED/symlink-unavailable/LOCK_VERSION_UNSUPPORTED/GUARD_MISMATCH 族（GUARD_ENTITY/GUARD_PROJECTION）/CLAIM_CONFLICT/REPAIR_CONFIRM_REQUIRED/GC_UNKNOWN_REFERENCE — 与 spec 逐条对齐的核对表 — G0
+- [x] replace/claim/repair/gc 状态机评审（design 冻结版 vs spec 一致性人工核对表） — design.md + specs — P1-3/P1-4
+- [x] 字段可见性契约测试清单（CLI/MCP/list·info/文件读取 × 领域字段/provenance 子集/redact-paths/frontmatter 隔离/**sourceUrl 脱敏三类输入**（userinfo/credentials/query strings，对齐 spec「Source URL sanitization」Scenario）） — specs + tests 清单 — P1-1
 
 ## 批 1 · state 单写者层【门：并发与崩溃收据】
 

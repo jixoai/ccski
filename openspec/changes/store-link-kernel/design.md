@@ -67,3 +67,11 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 12. 协议漂移 → SDK 显式 roots；CLI 检测语义全集进 parity（上节）；npm 升级重跑 parity。
 13. 可见性 → 字段可见性契约（上节），测试钉死。
 14. 验收归属 → ccski 仓拥有内核 parity（并发/crash/保留名/30+ roots/live-link 矩阵；Windows 按上节平台门）；skill-creator 仓拥有 wrapper 退役全链路复跑；两仓门都不过不发版。
+
+
+## G0 收据回流裁决（2026-10-07，MainAgent）
+
+1. **CLAIM_CONFLICT 双触发类**：单码保留，result 以 finite `reason` 区分 name-conflict / identity-mismatch 两类（批 5 fixture 钉两个触发类）。
+2. **gc 范围**：3.0 只交付 `gc --dry-run`（与 spec 冻结面一致）；执行协议如需另立 change，不在本 change 偷偷扩面。
+3. **uniqueDirs<=1 静默 copy（1.7.1 实测）**：npm 在全部目标共享同一 skillsDir 时静默 copy 无 canonical 实体——**已知分歧，不照抄**：ccski ensureEntity 恒建实体；投影根 == 实体根时的形态由批 3 G3 门与 Codex 对表后冻结（parity 收据 §0 记录为分歧项而非对齐目标）。
+4. **hash 算法代际**：1.7.1 = sha256 + localeCompare 排序（G0 收据 F1-F7 钉死）；本机存量 lock 存在旧算法 40-hex 条目——批 6 宿主切换时 update-check 需裁决代际差异兼容（建议：旧代 hash 视为 stale 触发一次重装收敛，具体批 6 定）。
