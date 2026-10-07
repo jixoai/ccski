@@ -215,3 +215,7 @@ export function computeSkillFolderHash(skillDir: string): Promise<string>;
 - 签名：入参单一 `skillDir: string`（绝对路径）；返回 hex digest（无 `sha256:` 前缀，与 lock `skillFolderHash` 字段取值形态一致）。
 - 单一消费出口：ccski 3.0 以此为唯一公开导出（design「对宿主导出唯一公开消费接口」，终审 P1-6）；宿主 `src/daemon/skills-update-service.ts` 的本地实现退役进批 6 host change。
 - 可选伴随导出（不强制）：`SKILL_FOLDER_HASH_VERSION = "1.7.1"` 常量，供宿主在 provenance 中标注算法代。
+
+## 勘误（2026-10-07，批 1 回流后 MainAgent 追记）
+
+F6/F7 原收据遗漏 SKILL.md 字节内容，原始树已清理，原 digest 不可复现（约 2300 候选模式 brute-force 不中）。批 1 以同协议对重建树用真实 skills@1.7.1 复跑**重钉**：F6=`22df5672…`、F7=`e2575b3d…`（完整值与重钉过程见 tests/folder-hash.test.ts 头注；重钉工具 `pnpm exec tsx tests/helpers/pin-hash-probe.ts` 可复跑）。本收据 F6/F7 以重钉值为准。

@@ -13,10 +13,10 @@
 
 ## 批 1 · state 单写者层【门：并发与崩溃收据】
 
-- [ ] `.ccski-state.json` 写入协议（tmp+fsync+rename + generation CAS + STATE_GENERATION_CONFLICT） — src/core/state-store — E2
-- [ ] state-store recovery primitive 收据：双进程竞争、kill -9 恢复、部分写降级（STATE_RECOVERY_REQUIRED）——repair **CLI** 在批 5 — src/core/state-store + tests — G1 门
-- [ ] folder-hash 单源实现（按批 0 收据）+ 对宿主导出 — src/core/folder-hash — P1-6
-- [ ] npm lock reader：raw passthrough（未知字段保留往返）、unknown version 只读降级拒当空 — src/core/lock-reader + tests — E2
+- [x] `.ccski-state.json` 写入协议（tmp+fsync+rename + generation CAS + STATE_GENERATION_CONFLICT） — src/core/state-store — E2
+- [x] state-store recovery primitive 收据：双进程竞争、kill -9 恢复、部分写降级（STATE_RECOVERY_REQUIRED）——repair **CLI** 在批 5 — src/core/state-store + tests — G1 门
+- [x] folder-hash 单源实现（按批 0 收据）+ 对宿主导出 — src/core/folder-hash — P1-6
+- [x] npm lock reader：raw passthrough（未知字段保留往返）、unknown version 只读降级拒当空 — src/core/lock-reader + tests — E2
 
 ## 批 2 · 发现层升级【门：发现矩阵全绿】
 
