@@ -35,6 +35,10 @@ The package MUST NOT write npm:skills `.skill-lock.json` (sole writer: skills CL
 - **WHEN** writing into the projection root fails with `EACCES`
 - **THEN** the projection fails with typed `TARGET_DENIED` and no materialized copy is created.
 
+#### Scenario: Canonical root yields entity-local receipt
+- **WHEN** `projectEntity` is called with a projection root that normalizes to the scope's own entity root (`scopeBase/skills`)
+- **THEN** the call returns a success receipt with `targetKind:"entity"`, `mode:"entity-local"`, `reason:"canonical-root"` and `path === canonicalPath === entityPath`; no symlink is created, no copy is made, no extra projection record is written (the entity record stays the sole authority), repeated calls are idempotent, and a requested `materialized` mode still yields `entity-local` while the receipt preserves `requestedMode`. Canonical-root receipts never participate in projection disable/remove; removal goes through entity mutation guarded by `GUARD_ENTITY`.
+
 ### Requirement: First-class symlink discovery
 The discovery layer SHALL treat top-level directory symlinks as first-class entries: `lstat` detection, single-level `realpath` resolution, and metadata carrying `canonicalPath`, `entryKind`, and `ownership` (`ccski`/`external`/`unknown`). Recursive descent MUST NOT follow symlinks below the top level. Broken links produce typed omissions with diagnostics, never silent misses. Reserved names `.ccski-staging-*` and `.ccski-backup-*` are skipped by discovery; startup cleanup deletes only residues carrying a ccski ownership marker and satisfying age/generation conditions. Mutation surfaces MUST distinguish projection paths from entity paths via `canonicalPath`.
 
