@@ -20,10 +20,10 @@
 
 ## 批 2 · 发现层升级【门：发现矩阵全绿】
 
-- [ ] 顶层 symlink 一等（lstat→realpath 单层、canonicalPath/entryKind/ownership）+ 递归拒绝 + broken typed omission — src/core/discovery — E6
-- [ ] 保留名精确 glob（.ccski-staging-*/.ccski-backup-*）+ marker+age/generation 条件清扫 — discovery + tests — E6
-- [ ] 发现矩阵（**人工磁盘 fixture，不依赖批 3/5 API**——claim/占用以磁盘形态构造观察）：global/project × link/materialized × enabled/disabled × regular/broken/external × **30+ roots** × foreign 条目 × 投影路径被占用 — tests — G2 门
-- [ ] legacy 物化目录 `materialized + legacy-unknown` 标注 — discovery — E7
+- [x] 顶层 symlink 一等（lstat→realpath 单层、canonicalPath/entryKind/ownership）+ 递归拒绝 + broken typed omission — src/core/discovery — E6
+- [x] 保留名精确 glob（.ccski-staging-*/.ccski-backup-*）+ marker+age/generation 条件清扫 — discovery + tests — E6
+- [x] 发现矩阵（**人工磁盘 fixture，不依赖批 3/5 API**——claim/占用以磁盘形态构造观察）：global/project × link/materialized × enabled/disabled × regular/broken/external × **30+ roots** × foreign 条目 × 投影路径被占用 — tests — G2 门
+- [x] legacy 物化目录 `materialized + legacy-unknown` 标注 — discovery — E7
 
 ## 批 3 · ensureEntity / projectEntity【门：API 契约测试】
 

@@ -8,12 +8,23 @@
  *       本批只做检测与 typed 错误，repair CLI 在批 5
  *   [3] 跨进程互斥锁（O_EXCL + pid 活性窃取）：关闭「CAS 校验 → rename」之间的
  *       竞态窗口，保证并发提交无静默丢写
- * 妥协声明：state 载荷仅本批最小面（generation + 空 entities/projections 表骨架），
+ *   [4] 同步只读面 readCcskiStateFileSync（批 2 发现层 ownership 判定的 state
+ *       读取入口；发现层为同步 API，只读无锁无清扫副作用）
+ * 妥协声明：state 载荷仅最小面（generation + 空 entities/projections 表骨架），
  * 领域字段批 3/4 随 API 扩——不做提前抽象。文件系统故障（EACCES/EIO 等）硬失败，
  * 不降级为空态（safeParse 只识别数据不兼容，不吞 IO 故障）。
  */
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, stat, unlink } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import {
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -115,24 +126,16 @@ export function emptyState(): CcskiStateData {
 }
 
 /**
- * 读取单个 state 文件（无清扫副作用）。ENOENT → absent；JSON/Zod 不兼容 →
- * 只读降级（STATE_RECOVERY_REQUIRED）；其余 IO 故障 → StateStoreError 硬失败。
+ * 解析 state 文本为 typed 读取结果（纯函数；async 与 sync 读共享同一校验管线）。
+ * JSON/Zod 不兼容 → 只读降级（STATE_RECOVERY_REQUIRED），绝不抛出。
  */
-export async function readCcskiStateFile(statePath: string): Promise<StateReadResult> {
-  let text: string;
-  try {
-    text = await readFile(statePath, "utf8");
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return { kind: "absent" };
-    throw new StateStoreError("IO", `failed to read state file ${statePath}`, error);
-  }
-
+function parseCcskiStateText(text: string): StateReadResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return recovery("corrupt-json", `state file is not valid JSON: ${statePath} (${detail})`);
+    return recovery("corrupt-json", `state file is not valid JSON (${detail})`);
   }
   if (!isRecord(parsed)) {
     return recovery("schema-invalid", "state payload is not a JSON object");
@@ -155,6 +158,37 @@ export async function readCcskiStateFile(statePath: string): Promise<StateReadRe
     );
   }
   return { kind: "ok", data: parsedState.data };
+}
+
+/**
+ * 读取单个 state 文件（无清扫副作用）。ENOENT → absent；JSON/Zod 不兼容 →
+ * 只读降级（STATE_RECOVERY_REQUIRED）；其余 IO 故障 → StateStoreError 硬失败。
+ */
+export async function readCcskiStateFile(statePath: string): Promise<StateReadResult> {
+  let text: string;
+  try {
+    text = await readFile(statePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return { kind: "absent" };
+    throw new StateStoreError("IO", `failed to read state file ${statePath}`, error);
+  }
+  return parseCcskiStateText(text);
+}
+
+/**
+ * 同步读取单个 state 文件（批 2 发现层 ownership 判定入口；发现层是同步 API）。
+ * 语义与 readCcskiStateFile 完全一致：ENOENT → absent；数据不兼容 → 只读降级；
+ * 其余 IO 故障 → StateStoreError 硬失败。只读，无锁无清扫副作用。
+ */
+export function readCcskiStateFileSync(statePath: string): StateReadResult {
+  let text: string;
+  try {
+    text = readFileSync(statePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return { kind: "absent" };
+    throw new StateStoreError("IO", `failed to read state file ${statePath}`, error);
+  }
+  return parseCcskiStateText(text);
 }
 
 function recovery(

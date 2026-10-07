@@ -4,7 +4,7 @@ import type { Skill, SkillMetadata, SkillProvider } from "../types/skill.js";
 import { parseProviderQualifiedName, providerNamesFromSkills } from "../utils/providers.js";
 import { rankStrings } from "../utils/search.js";
 import { formatSkillId } from "../utils/skill-id.js";
-import type { DiscoveryOptions } from "./discovery.js";
+import type { DiscoveryOptions, DiscoveryOmission } from "./discovery.js";
 import { discoverSkills, loadSkill } from "./discovery.js";
 import type { PluginDiscoveryOptions } from "./plugins.js";
 import { discoverPluginSkills } from "./plugins.js";
@@ -16,6 +16,7 @@ interface SkillRegistryDiagnostics {
   pluginSources: string[];
   warnings: string[];
   conflicts: string[];
+  omissions: DiscoveryOmission[];
   events: CcskiDiagnostic[];
   byProvider: Record<string, number>;
   byLocation: Record<string, number>;
@@ -31,6 +32,7 @@ export class SkillRegistry {
     pluginSources: [],
     warnings: [],
     conflicts: [],
+    omissions: [],
     events: [],
     byProvider: {},
     byLocation: {},
@@ -51,6 +53,7 @@ export class SkillRegistry {
       pluginSources: [],
       warnings: [],
       conflicts: [],
+      omissions: [],
       events: [],
       byProvider: {},
       byLocation: {},
@@ -62,6 +65,7 @@ export class SkillRegistry {
     this.diagnostics.directoriesScanned.push(...discovered.diagnostics.scannedDirectories);
     this.diagnostics.warnings.push(...discovered.diagnostics.warnings);
     this.diagnostics.conflicts.push(...discovered.diagnostics.conflicts);
+    this.diagnostics.omissions.push(...discovered.diagnostics.omissions);
     this.diagnostics.events.push(...discovered.diagnostics.events);
 
     for (const skill of discovered.skills) {
@@ -196,6 +200,7 @@ export class SkillRegistry {
     pluginSources: string[];
     warnings: string[];
     conflicts: string[];
+    omissions: DiscoveryOmission[];
     events: CcskiDiagnostic[];
   } {
     return {
@@ -206,6 +211,7 @@ export class SkillRegistry {
       pluginSources: [...this.diagnostics.pluginSources],
       warnings: [...this.diagnostics.warnings],
       conflicts: [...this.diagnostics.conflicts],
+      omissions: [...this.diagnostics.omissions],
       events: [...this.diagnostics.events],
     };
   }
