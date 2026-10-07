@@ -79,3 +79,7 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 ## 实现期契约修正（2026-10-07，批 3 回流，MainAgent 亲验 dist 源码）
 
 **sanitize 分歧修正**：spec 原句「spaces/underscores to hyphens」源自评审转述，与 npm:skills 1.7.1 dist 实读不符。dist 事实（cli.mjs sanitizeName，已亲验）：`toLowerCase().replace(/[^a-z0-9._]+/g,"-").replace(/^[.\-]+|[.\-]+$/g,"").substring(0,255) || "unnamed-skill"`——**下划线与点保留**、集合外游程转连字符、首尾 `.-` 剥离、255 截断、空落 unnamed-skill。裁决：ccski 对齐 dist（内核一致优先；spec 已同步修正）。后果消除：npm 装 `my_skill` 与 ccski 装 `my-skill` 不再分叉成两目录。
+
+## 批 5 实现期裁决（2026-10-07，MainAgent 批准）
+
+(a) ccski CLI 的 git/marketplace 安装源 3.0 退役 → typed `SOURCE_UNSUPPORTED` 指路宿主（git clone+install 本就是 skill-creator repository 域的职责）；(b) CLI mutation 缺省 scope = project（`--global` 切换；SDK 恒显式；与 npm 的 auto-detect 缺省为已知 CLI 层差异，不违 parity——parity 钉的是投影集合非 scope 缺省）；(c) migrate expected hash 守卫 = `--plan` 文件回传（无回传时同调用内 scan→execute 重 hash，并发窗由 CAS 收窄）；(d) agent 注册表 = npm 1.7.1 语义镜像非逐键复制（universal-class 压缩共享 canonical 根；zcode 检测不含 /Applications 探针——hermetic 优先）；(e) 批 5 命令面新增 finite 码 DRY_RUN_REQUIRED/NO_GLOBAL_INSTALL/HASH_MISMATCH 已补进 spec 对应 Requirement（词表闭合纪律）。
