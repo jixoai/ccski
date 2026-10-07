@@ -45,18 +45,18 @@ export {
   type EntityUpdateProjectionResult,
   type EntityUpdateResult,
 } from "./entity-update.js";
+// stageEntityCopy/swapEntityIntoPlace/EntitySwapOutcome 是实体状态机（R1-R11）的
+// 内部原语：公开等于给宿主绕过 guard 的写旁路，只保留模块内导出（测试与
+// entity-update 走直接模块路径引用），不入包根公共面（同 state-store 先例）。
 export {
   ensureEntity,
   projectEntity,
-  stageEntityCopy,
-  swapEntityIntoPlace,
   type EnsureEntityExisting,
   type EnsureEntityFailureCode,
   type EnsureEntityOptions,
   type EnsureEntityResult,
   type EntitySnapshot,
   type EntitySourceInput,
-  type EntitySwapOutcome,
   type ProjectEntityCommon,
   type ProjectEntityOptions,
   type ProjectEntityResult,
