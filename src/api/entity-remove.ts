@@ -22,6 +22,12 @@
  *       记录双重比对（deleteEntity）或与 state 记录比对（GC），不符 → typed 拒绝/
  *       GC 拒绝且零磁盘副作用；「重算 → 销毁」窗口由 entity-disk-guard 的目录 inode +
  *       SKILL.md fd 身份判据守卫（防重算与销毁之间换体）
+ *   [5] 终审第三轮（P0-A/P0-B/P1-D/P1-E）：absent 门 = 只退役 dangling state 记录、
+ *       绝不触碰磁盘路径（路径在场 = 同名重建，entityPresentOnDisk 如实诊断）；
+ *       销毁哈希复读通过后追加第二次身份复核（哈希读取屏障内的整目录换体由 inode
+ *       判据拦截）；expectedEntityRevision 可选贯穿 GC 退役（入口比对 + CAS 复核，
+ *       不符 typed GUARD_ENTITY 实体零副作用）；pin fd 生命周期 = 覆盖退役 + 销毁
+ *       全流程的 finally（recovery/conflict/rejected 提前返回不再泄漏）
  * 妥协声明：GC 的引用复核是时点快照（scan 与 commit 之间的外部链竞态由 CAS 内零记录
  * 复核 + 发现层 broken omission 兜底可见）；「复核通过 → rmSync」的微窗口是 Node API
  * 边界（无按 fd 销毁），闭合级与物化副本 guard 同一语义环（design.md 终审回流节）；
@@ -43,9 +49,14 @@ import {
 } from "../core/entity-state.js";
 import { computeSkillFolderHash } from "../core/folder-hash.js";
 import { emptyState, StateStore } from "../core/state-store.js";
-import { commitTransform, isCanonicalEntityRoot, toSnapshot, type EntitySnapshot } from "./entity.js";
 import { type EntityDiskGuardHandle, openEntityDiskGuard } from "./entity-disk-guard.js";
 import { lstatSafe, materializedCopyGuard, symlinkTargetsEntity } from "./entity-guards.js";
+import {
+  type EntitySnapshot,
+  commitTransform,
+  isCanonicalEntityRoot,
+  toSnapshot,
+} from "./entity.js";
 
 export interface EntityRemoveOptions {
   /** 显式 scope（缺省/非法 = SCOPE_REQUIRED） */
@@ -54,6 +65,14 @@ export interface EntityRemoveOptions {
   name: string;
   /** 显式投影根（SDK 永不环境推断；逐根独立处理与收据；空 = INVALID_ROOTS） */
   roots: readonly string[];
+  /**
+   * 可选实体 revision 守卫（终审第三轮 P1-D，未发布 3.0.0 发版前演进）：调用方
+   * 观察到的实体 revision。在场时末投影 GC 的实体退役以它为基准——入口即比对
+   * （不符 typed GUARD_ENTITY，投影与实体零副作用），CAS 退役 transform 内复核
+   * （门与提交之间被并发换新 → typed GUARD_ENTITY，实体保留零副作用；投影删除
+   * 已发生的磁盘事实在 message 如实说明）。缺省 = 既有语义（以 state 记录为基准）。
+   */
+  expectedEntityRevision?: string;
   /** global scopeBase 解析（默认 homedir；测试/宿主注入） */
   userDir?: string;
   /** project scopeBase 解析（默认 process.cwd()；测试/宿主注入） */
@@ -90,6 +109,12 @@ export interface EntityRemoveGcReport {
   entityDeleted: boolean;
   /** 阻塞类：仍有投影记录 / 注册根存在 ccski-owned 引用 / 未知引用 */
   blockedBy?: "PROJECTIONS" | "OWNED_REFERENCE" | "UNKNOWN_REFERENCE";
+  /**
+   * 磁盘路径在场诊断（终审第三轮 P0-A）：absent 门退役 dangling 记录后发现
+   * 实体路径在场（CAS 等待窗口内同名重建，非 ccski 守卫内容）——目录原样保留。
+   * 仅诊断用途，不驱动决策。
+   */
+  entityPresentOnDisk?: boolean;
   warnings: string[];
 }
 
@@ -97,6 +122,7 @@ export type EntityRemoveFailureCode =
   | "SCOPE_REQUIRED"
   | "INVALID_ROOTS"
   | "ENTITY_NOT_FOUND"
+  | "GUARD_ENTITY"
   | "STATE_RECOVERY_REQUIRED"
   | "STATE_GENERATION_CONFLICT"
   | "IO";
@@ -122,7 +148,9 @@ export type EntityRemoveResult =
  * 条件不满足即保留实体（blockedBy 如实），未知引用以 GC_UNKNOWN_REFERENCE warning
  * 呈现且不影响本次投影 remove 的成功。
  */
-export async function removeEntityProjections(options: EntityRemoveOptions): Promise<EntityRemoveResult> {
+export async function removeEntityProjections(
+  options: EntityRemoveOptions
+): Promise<EntityRemoveResult> {
   if (options.scope !== "global" && options.scope !== "project") {
     return {
       kind: "error",
@@ -134,7 +162,8 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
     return {
       kind: "error",
       code: "INVALID_ROOTS",
-      message: "removeEntityProjections requires at least one explicit projection root; the SDK never infers roots",
+      message:
+        "removeEntityProjections requires at least one explicit projection root; the SDK never infers roots",
     };
   }
   const scope: EntityScope = options.scope;
@@ -168,6 +197,19 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
   const entityPath = entityRecord.path;
   const folderName = entityRecord.folderName;
 
+  // P1-D 入口比对：调用方观察 revision 与 state 实体记录不符 → typed GUARD_ENTITY，
+  // 投影与实体零副作用（「验证后更新再删除」竞态的内核半区闸门）
+  if (
+    typeof options.expectedEntityRevision === "string" &&
+    options.expectedEntityRevision !== entityRecord.revision
+  ) {
+    return {
+      kind: "error",
+      code: "GUARD_ENTITY",
+      message: `remove expectedEntityRevision ${options.expectedEntityRevision} does not match entity revision ${entityRecord.revision}; projections and entity untouched`,
+    };
+  }
+
   const results: EntityRemoveRootResult[] = [];
   const removedRecordKeys: string[] = [];
   const gcWarnings: string[] = [];
@@ -197,19 +239,37 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
         mode: "entity-local",
         targetKind: "entity",
         reason: "canonical-root",
-        detail: "canonical entity root does not participate in projection remove; entity deletion goes through deleteEntity (GUARD_ENTITY)",
+        detail:
+          "canonical entity root does not participate in projection remove; entity deletion goes through deleteEntity (GUARD_ENTITY)",
       });
       continue;
     }
 
     const recordKey = projectionRecordKey(rootId, folderName);
     const record = parseProjectionTable(base.projections).records.get(recordKey);
-    const st = lstatSafe(projPath);
+    let st: ReturnType<typeof lstatSafe>;
+    try {
+      st = lstatSafe(projPath);
+    } catch (error) {
+      // P1-E：投影位「无法观察」≠ 缺席——typed 失败，记录不退役、路径不动
+      results.push({
+        ...rootBase,
+        status: "failed",
+        errorCode: "IO",
+        error: `failed to inspect the projection path ${projPath} (${detailOf(error)})`,
+      });
+      continue;
+    }
 
     if (record === undefined) {
       // 无记录：external live-link typed 只读；同目标链/未知条目 = 未知引用（保留实体）
       if (st === null) {
-        results.push({ ...rootBase, status: "skipped", errorCode: "NOT_FOUND", detail: "nothing on disk and no projection record" });
+        results.push({
+          ...rootBase,
+          status: "skipped",
+          errorCode: "NOT_FOUND",
+          detail: "nothing on disk and no projection record",
+        });
         continue;
       }
       if (st.isSymbolicLink() && !symlinkTargetsEntity(projPath, entityPath)) {
@@ -217,7 +277,8 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
           ...rootBase,
           status: "failed",
           errorCode: "FOREIGN_OWNERSHIP",
-          error: "external live-link (target is not a ccski-owned entity); external links are read-only and never count toward deletion authority",
+          error:
+            "external live-link (target is not a ccski-owned entity); external links are read-only and never count toward deletion authority",
         });
         continue;
       }
@@ -240,7 +301,11 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
           status: "failed",
           errorCode: "GUARD_PROJECTION",
           error: `the recorded link projection path is now ${
-            st.isSymbolicLink() ? "a symlink to a different target" : st.isDirectory() ? "a real directory" : "a non-directory entry"
+            st.isSymbolicLink()
+              ? "a symlink to a different target"
+              : st.isDirectory()
+                ? "a real directory"
+                : "a non-directory entry"
           }; refusing to remove it as a ccski link (path untouched, never removed through a link)`,
         });
         continue;
@@ -259,7 +324,10 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
         status: "removed",
         mode: "link",
         targetKind: "projection",
-        detail: st === null ? "link was already absent; projection record retired" : "link unlinked (never recursively); projection record retired",
+        detail:
+          st === null
+            ? "link was already absent; projection record retired"
+            : "link unlinked (never recursively); projection record retired",
       });
       continue;
     }
@@ -281,7 +349,8 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
         ...rootBase,
         status: "failed",
         errorCode: "GUARD_PROJECTION",
-        error: "the recorded materialized projection path is now a symlink or non-directory entry; refusing to remove it as a ccski copy (path untouched)",
+        error:
+          "the recorded materialized projection path is now a symlink or non-directory entry; refusing to remove it as a ccski copy (path untouched)",
       });
       continue;
     }
@@ -332,7 +401,8 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
         message: `projection paths were mutated on disk but state was not updated (degraded read-only: ${commit.detail}); re-run the same remove to reconcile records`,
       };
     } else {
-      const reconcile = commit.kind === "rejected" ? commit.message : "state commit exhausted generation retries";
+      const reconcile =
+        commit.kind === "rejected" ? commit.message : "state commit exhausted generation retries";
       return {
         kind: "error",
         code: "STATE_GENERATION_CONFLICT",
@@ -347,20 +417,52 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
   // 删除走实体 mutation）；历史残留的收敛归批 5 gc --dry-run/repair。
   const gc: EntityRemoveGcReport = { attempted: false, entityDeleted: false, warnings: gcWarnings };
   if (removedRecordKeys.length === 0) {
-    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      entityRemoved: false,
+      results,
+      removed,
+      skipped,
+      failed,
+      gc,
+      generation,
+    };
   }
   const fresh = await store.read();
   if (fresh.kind === "recovery-required") {
     gc.blockedBy = "PROJECTIONS";
     gc.warnings.push(`GC not evaluated: state degraded read-only (${fresh.detail})`);
-    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      entityRemoved: false,
+      results,
+      removed,
+      skipped,
+      failed,
+      gc,
+      generation,
+    };
   }
   const freshBase = fresh.kind === "ok" ? fresh.data : emptyState();
   const freshProjections = parseProjectionTable(freshBase.projections).records;
-  const remainingForFolder = [...freshProjections.values()].filter((r) => r.folderName === folderName);
+  const remainingForFolder = [...freshProjections.values()].filter(
+    (r) => r.folderName === folderName
+  );
   if (remainingForFolder.length > 0) {
     gc.blockedBy = "PROJECTIONS";
-    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      entityRemoved: false,
+      results,
+      removed,
+      skipped,
+      failed,
+      gc,
+      generation,
+    };
   }
 
   gc.attempted = true;
@@ -378,7 +480,17 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
   gc.warnings.push(...referenceVerdict.warnings);
   if (referenceVerdict.verdict !== "clean") {
     gc.blockedBy = referenceVerdict.verdict === "owned" ? "OWNED_REFERENCE" : "UNKNOWN_REFERENCE";
-    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      entityRemoved: false,
+      results,
+      removed,
+      skipped,
+      failed,
+      gc,
+      generation,
+    };
   }
 
   // 磁盘绑定门（终审 P0-3）：末投影 GC 的实体销毁同样绑定磁盘实体 revision（基准 =
@@ -386,56 +498,100 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
   // 投影 remove 的成功结果不受影响。
   const gcGate = await gateEntityDestruction(entityPath, [entityRecord.revision]);
   if (gcGate.kind === "refused") {
-    gc.warnings.push(`GC_ENTITY_DISK_GUARD: ${gcGate.reason}; entity kept (state record and disk content preserved)`);
-    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+    gc.warnings.push(
+      `GC_ENTITY_DISK_GUARD: ${gcGate.reason}; entity kept (state record and disk content preserved)`
+    );
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      entityRemoved: false,
+      results,
+      removed,
+      skipped,
+      failed,
+      gc,
+      generation,
+    };
   }
 
-  // 条件满足：state 退役先行（CAS 内复核零记录 + guarded revision），目录销毁随后
-  const retire = await commitTransform(store, (tables) => {
-    for (const record of tables.projections.values()) {
-      if (record.folderName === folderName) {
+  // 条件满足：state 退役先行（CAS 内复核零记录 + guarded revision + 调用方观察
+  // revision），目录销毁随后。pin fd 生命周期覆盖退役 + 销毁全流程（P1-E：拒绝/
+  // 降级提前返回不泄漏）。
+  try {
+    const retire = await commitTransform(store, (tables) => {
+      for (const record of tables.projections.values()) {
+        if (record.folderName === folderName) {
+          return {
+            kind: "reject" as const,
+            code: "PROJECTIONS",
+            message: `a projection record for "${folderName}" appeared concurrently; entity kept`,
+          };
+        }
+      }
+      const record = tables.entities.get(folderName);
+      if (record === undefined) {
         return {
           kind: "reject" as const,
-          code: "PROJECTIONS",
-          message: `a projection record for "${folderName}" appeared concurrently; entity kept`,
+          code: "ALREADY_GONE",
+          message: `entity record for "${folderName}" already retired`,
         };
       }
+      // P1-D CAS 复核（先于 guarded-revision：调用方观察的 revision 在场时是更强
+      // 授权基准）：门通过后、提交前实体被并发换新 → typed GUARD_ENTITY（实体保留
+      // 零副作用；投影删除的磁盘事实在返回 message 如实说明）
+      if (
+        typeof options.expectedEntityRevision === "string" &&
+        record.revision !== options.expectedEntityRevision
+      ) {
+        return {
+          kind: "reject" as const,
+          code: "GUARD_ENTITY",
+          message: `entity "${folderName}" was revised concurrently (state revision ${record.revision.slice(0, 12)} vs caller-observed ${options.expectedEntityRevision.slice(0, 12)}); entity kept`,
+        };
+      }
+      if (record.revision !== entityRecord.revision) {
+        return {
+          kind: "reject" as const,
+          code: "REVISION",
+          message: `entity "${folderName}" was revised concurrently (revision ${record.revision.slice(0, 12)} vs guarded ${entityRecord.revision.slice(0, 12)}); entity kept`,
+        };
+      }
+      tables.entities.delete(folderName);
+      return { kind: "apply" as const, deleteEntityKeys: [folderName] };
+    });
+    if (retire.kind === "committed") {
+      generation = retire.generation;
+      const destroyed = await destroyGuardedEntity(entityPath, gcGate);
+      gc.entityDeleted = destroyed.deleted;
+      if (destroyed.entityPresentOnDisk) gc.entityPresentOnDisk = true;
+      if (destroyed.warning !== undefined) gc.warnings.push(destroyed.warning);
+    } else if (retire.kind === "rejected") {
+      if (retire.code === "PROJECTIONS") {
+        gc.blockedBy = "PROJECTIONS";
+        gc.warnings.push(retire.message);
+      } else if (retire.code === "GUARD_ENTITY") {
+        // P1-D：投影已删（磁盘事实）+ 实体被并发换新 → typed GUARD_ENTITY 如实
+        // 返回（调用方重读 state 重试；实体与磁盘内容零副作用）
+        return {
+          kind: "error",
+          code: "GUARD_ENTITY",
+          message: `projections were removed on disk but the entity was revised concurrently (${retire.message}); entity kept — re-read state and retry`,
+        };
+      } else if (retire.code === "REVISION") {
+        // 实体被并发 ccski mutation 换新：销毁拒绝（blockedBy 词表三态均不适用，
+        // warning 如实承载；GC 的 blockedBy 联合不为本拒绝类扩面）
+        gc.warnings.push(`GC_ENTITY_DISK_GUARD: ${retire.message}`);
+      }
+      // ALREADY_GONE = 并发 GC 已退役（entityDeleted=false 如实）
+    } else if (retire.kind === "recovery-required") {
+      gc.warnings.push(`GC not committed: state degraded read-only (${retire.detail})`);
+    } else if (retire.kind === "conflict-exhausted") {
+      gc.warnings.push("GC not committed: state commit exhausted generation retries");
     }
-    const record = tables.entities.get(folderName);
-    if (record === undefined) {
-      return { kind: "reject" as const, code: "ALREADY_GONE", message: `entity record for "${folderName}" already retired` };
-    }
-    if (record.revision !== entityRecord.revision) {
-      return {
-        kind: "reject" as const,
-        code: "REVISION",
-        message: `entity "${folderName}" was revised concurrently (revision ${record.revision.slice(0, 12)} vs guarded ${entityRecord.revision.slice(0, 12)}); entity kept`,
-      };
-    }
-    tables.entities.delete(folderName);
-    return { kind: "apply" as const, deleteEntityKeys: [folderName] };
-  });
-  if (retire.kind === "committed") {
-    generation = retire.generation;
-    const destroyed = await destroyGuardedEntity(entityPath, gcGate);
-    gc.entityDeleted = destroyed.deleted;
-    if (destroyed.warning !== undefined) gc.warnings.push(destroyed.warning);
-  } else if (retire.kind === "rejected") {
-    if (retire.code === "PROJECTIONS") {
-      gc.blockedBy = "PROJECTIONS";
-      gc.warnings.push(retire.message);
-    } else if (retire.code === "REVISION") {
-      // 实体被并发 ccski mutation 换新：销毁拒绝（blockedBy 词表三态均不适用，
-      // warning 如实承载；GC 的 blockedBy 联合不为本拒绝类扩面）
-      gc.warnings.push(`GC_ENTITY_DISK_GUARD: ${retire.message}`);
-    }
-    // ALREADY_GONE = 并发 GC 已退役（entityDeleted=false 如实）
-  } else if (retire.kind === "recovery-required") {
-    gc.warnings.push(`GC not committed: state degraded read-only (${retire.detail})`);
-  } else if (retire.kind === "conflict-exhausted") {
-    gc.warnings.push("GC not committed: state commit exhausted generation retries");
+    // ALREADY_GONE = 并发 GC 已退役；committed 分支的删除失败以 warning + entityDeleted=false 如实呈现
+  } finally {
+    if (gcGate.kind === "pinned") gcGate.handle.close();
   }
-  // ALREADY_GONE = 并发 GC 已退役；committed 分支的删除失败以 warning + entityDeleted=false 如实呈现
 
   return {
     kind: "ok",
@@ -481,6 +637,12 @@ export type DeleteEntityResult =
       entity: EntitySnapshot;
       /** 实体目录是否已删除（state 已退役但目录删除失败时 false + warning） */
       directoryDeleted: boolean;
+      /**
+       * 磁盘路径在场诊断（终审第三轮 P0-A）：absent 门退役 dangling 记录后发现
+       * 实体路径在场（CAS 等待窗口内同名重建，非 ccski 守卫内容）——目录原样保留。
+       * 仅诊断用途，不驱动决策。
+       */
+      entityPresentOnDisk?: boolean;
       generation: number;
       warnings: string[];
     }
@@ -532,12 +694,17 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
   const folderName = entityRecord.folderName;
   const entityPath = entityRecord.path;
 
-  if (typeof options.expectedRevision !== "string" || options.expectedRevision !== entityRecord.revision) {
+  if (
+    typeof options.expectedRevision !== "string" ||
+    options.expectedRevision !== entityRecord.revision
+  ) {
     return {
       kind: "error",
       code: "GUARD_ENTITY",
       message: `deleteEntity expectedRevision ${
-        typeof options.expectedRevision === "string" && options.expectedRevision.length > 0 ? options.expectedRevision : "(missing)"
+        typeof options.expectedRevision === "string" && options.expectedRevision.length > 0
+          ? options.expectedRevision
+          : "(missing)"
       } does not match entity revision ${entityRecord.revision}; entity untouched`,
     };
   }
@@ -576,7 +743,10 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
   // 磁盘绑定门（终审 P0-3）：expectedRevision 必须同时绑定 state 记录与磁盘实体树
   // （重算 computeSkillFolderHash 双重比对）；磁盘被并发改写/换体 → GUARD_ENTITY，
   // state 记录与磁盘内容零副作用。销毁窗口由 fd/inode 身份判据守卫（entity-disk-guard）。
-  const gate = await gateEntityDestruction(entityPath, [options.expectedRevision, entityRecord.revision]);
+  const gate = await gateEntityDestruction(entityPath, [
+    options.expectedRevision,
+    entityRecord.revision,
+  ]);
   if (gate.kind === "refused") {
     return {
       kind: "error",
@@ -585,43 +755,74 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
     };
   }
 
-  const retire = await commitTransform(store, (tables) => {
-    const record = tables.entities.get(folderName);
-    if (record === undefined) {
-      return { kind: "reject" as const, code: "ENTITY_NOT_FOUND", message: `entity record for "${folderName}" vanished concurrently` };
-    }
-    if (record.revision !== options.expectedRevision) {
-      return { kind: "reject" as const, code: "GUARD_ENTITY", message: `entity was revised concurrently (revision ${record.revision}); deletion refused` };
-    }
-    for (const projection of tables.projections.values()) {
-      if (projection.folderName === folderName) {
-        return { kind: "reject" as const, code: "PROJECTIONS_REMAIN", message: `a projection for "${folderName}" appeared concurrently; deletion refused` };
+  // state 退役 + 守卫销毁：pin fd 生命周期覆盖全流程（P1-E——recovery/conflict/
+  // rejected 提前返回不再泄漏；destroyGuardedEntity 内部的幂等 close 保留）
+  try {
+    const retire = await commitTransform(store, (tables) => {
+      const record = tables.entities.get(folderName);
+      if (record === undefined) {
+        return {
+          kind: "reject" as const,
+          code: "ENTITY_NOT_FOUND",
+          message: `entity record for "${folderName}" vanished concurrently`,
+        };
       }
+      if (record.revision !== options.expectedRevision) {
+        return {
+          kind: "reject" as const,
+          code: "GUARD_ENTITY",
+          message: `entity was revised concurrently (revision ${record.revision}); deletion refused`,
+        };
+      }
+      for (const projection of tables.projections.values()) {
+        if (projection.folderName === folderName) {
+          return {
+            kind: "reject" as const,
+            code: "PROJECTIONS_REMAIN",
+            message: `a projection for "${folderName}" appeared concurrently; deletion refused`,
+          };
+        }
+      }
+      tables.entities.delete(folderName);
+      return { kind: "apply" as const, deleteEntityKeys: [folderName] };
+    });
+    if (retire.kind === "recovery-required") {
+      return {
+        kind: "error",
+        code: "STATE_RECOVERY_REQUIRED",
+        message: `state degraded read-only: ${retire.detail}`,
+      };
     }
-    tables.entities.delete(folderName);
-    return { kind: "apply" as const, deleteEntityKeys: [folderName] };
-  });
-  if (retire.kind === "recovery-required") {
-    return { kind: "error", code: "STATE_RECOVERY_REQUIRED", message: `state degraded read-only: ${retire.detail}` };
-  }
-  if (retire.kind === "conflict-exhausted") {
-    return { kind: "error", code: "STATE_GENERATION_CONFLICT", message: "state commit exhausted generation retries; entity untouched" };
-  }
-  if (retire.kind === "rejected") {
-    const code: DeleteEntityFailureCode =
-      retire.code === "GUARD_ENTITY" ? "GUARD_ENTITY" : retire.code === "PROJECTIONS_REMAIN" ? "PROJECTIONS_REMAIN" : "ENTITY_NOT_FOUND";
-    return { kind: "error", code, message: `${retire.message} (entity untouched on disk)` };
-  }
+    if (retire.kind === "conflict-exhausted") {
+      return {
+        kind: "error",
+        code: "STATE_GENERATION_CONFLICT",
+        message: "state commit exhausted generation retries; entity untouched",
+      };
+    }
+    if (retire.kind === "rejected") {
+      const code: DeleteEntityFailureCode =
+        retire.code === "GUARD_ENTITY"
+          ? "GUARD_ENTITY"
+          : retire.code === "PROJECTIONS_REMAIN"
+            ? "PROJECTIONS_REMAIN"
+            : "ENTITY_NOT_FOUND";
+      return { kind: "error", code, message: `${retire.message} (entity untouched on disk)` };
+    }
 
-  // state 已退役：销毁前过第二道守卫（身份复核 + 全树哈希复核；换体拒绝销毁）
-  const destroyed = await destroyGuardedEntity(entityPath, gate);
-  return {
-    kind: "ok",
-    entity: toSnapshot(entityRecord),
-    directoryDeleted: destroyed.deleted,
-    generation: retire.generation,
-    warnings: destroyed.warning !== undefined ? [destroyed.warning] : [],
-  };
+    // state 已退役：销毁前过第二道守卫（身份复核 + 全树哈希复核；换体拒绝销毁）
+    const destroyed = await destroyGuardedEntity(entityPath, gate);
+    return {
+      kind: "ok",
+      entity: toSnapshot(entityRecord),
+      directoryDeleted: destroyed.deleted,
+      ...(destroyed.entityPresentOnDisk ? { entityPresentOnDisk: true } : {}),
+      generation: retire.generation,
+      warnings: destroyed.warning !== undefined ? [destroyed.warning] : [],
+    };
+  } finally {
+    if (gate.kind === "pinned") gate.handle.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,7 +838,8 @@ type EntityDestructionGate =
  * 销毁前磁盘门（P0-3）：pin 实体磁盘身份（entity-disk-guard）→ 重算磁盘实体
  * revision（computeSkillFolderHash，entityRevision 的唯一表示）→ 与基准集双重比对
  * → 身份复核。任一不符 → refused（零 state/磁盘副作用：调用方在 retire 之前拒绝）。
- * absent = dangling record（磁盘无实体内容，无需守卫，销毁退化为记录退役）。
+ * absent = dangling record（磁盘无实体内容，无需守卫）：退役即收敛，磁盘路径
+ * 绝不由本门处置（P0-A——后续 destroy 半区只诊断，不删除）。
  */
 async function gateEntityDestruction(
   entityPath: string,
@@ -679,20 +881,41 @@ async function gateEntityDestruction(
 
 /**
  * 带守卫的实体销毁：state 退役提交之后调用。pinned 门 → 身份复核（目录 inode +
- * SKILL.md fd；换体拒绝销毁）→ 全树哈希复核（内容在门后又被改写拒绝销毁）→ rmSync。
+ * SKILL.md fd；换体拒绝销毁）→ 全树哈希复核（内容在门后又被改写拒绝销毁）→
+ * **哈希通过后的第二次身份复核（P0-B：哈希读取屏障内整目录换体由 inode/fd 判据
+ * 拦截——哈希值等值不等于磁盘还是同一目录）** → rmSync。残余窗口收敛到「第二次
+ * 复核 → rmSync」微窗口（Node 无按 fd 销毁，与物化守卫同级，design.md 声明）。
  * refused/失败一律不碰目录，残留以 warning 如实呈现（与既有 rm 失败同一报告形态）。
+ *
+ * absent 门（P0-A）：dangling state 记录的退役是唯一合法动作——磁盘路径绝不被
+ * 触碰。gate 时点缺席之后路径再现 = CAS 等待窗口内同名重建（非 ccski 守卫内容），
+ * 以 entityPresentOnDisk 诊断如实上报（残留交 ENTITY_PATH_OCCUPIED typed 可见）。
  */
 async function destroyGuardedEntity(
   entityPath: string,
   gate: Exclude<EntityDestructionGate, { kind: "refused" }>
-): Promise<{ deleted: boolean; warning?: string }> {
+): Promise<{ deleted: boolean; entityPresentOnDisk?: boolean; warning?: string }> {
   if (gate.kind === "absent") {
+    let reappeared: boolean;
     try {
-      rmSync(entityPath, { recursive: true, force: true });
-      return { deleted: true };
+      reappeared = lstatSafe(entityPath) !== null;
     } catch (error) {
-      return { deleted: false, warning: residualDirectoryWarning(entityPath, error) };
+      return {
+        deleted: false,
+        warning: residualDirectoryWarning(
+          entityPath,
+          new Error(`the entity path became unreadable (${detailOf(error)})`)
+        ),
+      };
     }
+    if (reappeared) {
+      return {
+        deleted: false,
+        entityPresentOnDisk: true,
+        warning: `entity record was retired (dangling) but the path reappeared on disk at ${entityPath} — not ccski-guarded content, left untouched (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
+      };
+    }
+    return { deleted: true };
   }
   const { handle, diskRevision } = gate;
   try {
@@ -726,6 +949,18 @@ async function destroyGuardedEntity(
         )} → ${rehashed.slice(0, 12)}); directory left untouched at ${entityPath} and is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
       };
     }
+    // P0-B 第二次身份复核：哈希复读是异步读取屏障——期间整目录换体（同内容新目录）
+    // 会让哈希等值通过；目录 inode / 身份源 inode / fd digest 任一漂移即拒绝销毁。
+    const final = handle.verify(entityPath);
+    if (!final.ok) {
+      return {
+        deleted: false,
+        warning: `entity record was retired and the tree hash still matched, but the entity identity changed while re-hashing (${final.reason}); directory left untouched at ${entityPath} and is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
+      };
+    }
+    if (!final.present) {
+      return { deleted: true }; // 复核时点路径已消失：无可销毁内容；换体内容从未被删
+    }
     try {
       rmSync(entityPath, { recursive: true, force: true });
       return { deleted: true };
@@ -735,6 +970,10 @@ async function destroyGuardedEntity(
   } finally {
     handle.close();
   }
+}
+
+function detailOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function residualDirectoryWarning(entityPath: string, error: unknown): string {
@@ -767,13 +1006,23 @@ type ReferenceVerdict =
  * - symlink 指向他处 → external（非引用：不阻塞也不计入删除权限）
  * - 非链条目且路径即实体本体 → 跳过（entity root 进入扫描集时避免自判未知条目）
  * - 其余（实目录/普通文件）→ 未知引用（阻塞 + GC_UNKNOWN_REFERENCE warning）
+ * - 条目无法观察（P1-E：EACCES/EIO 上抛）→ 未知引用保守阻塞（无法验证 ≠ 无引用）
  */
 function classifyReferences(args: ReferenceScanArgs): ReferenceVerdict {
   const warnings: string[] = [];
   let verdict: "clean" | "owned" | "unknown" = "clean";
   for (const root of args.scanRoots) {
     const entryPath = resolve(root, args.folderName);
-    const st = lstatSafe(entryPath);
+    let st: ReturnType<typeof lstatSafe>;
+    try {
+      st = lstatSafe(entryPath);
+    } catch (error) {
+      verdict = "unknown";
+      warnings.push(
+        `GC_UNKNOWN_REFERENCE: ${entryPath} (reference check unreadable: ${detailOf(error)}; treated as a blocking unknown reference)`
+      );
+      continue;
+    }
     if (st === null) continue;
     if (st.isSymbolicLink()) {
       if (symlinkTargetsEntity(entryPath, args.entityPath)) {

@@ -206,7 +206,20 @@ function classifyResiduesReadOnly(
         : null;
     if (kind === null || !isCcskiReservedName(entry.name)) continue;
     const fullPath = join(rootPath, entry.name);
-    const st = lstatSafe(fullPath);
+    let st: ReturnType<typeof lstatSafe>;
+    try {
+      st = lstatSafe(fullPath);
+    } catch {
+      // P1-E：无法观察 → kept（清扫面永不对读不了的条目下手）
+      out.push({
+        path: fullPath,
+        name: entry.name,
+        kind,
+        outcome: "kept",
+        reason: "unreadable",
+      });
+      continue;
+    }
     if (st === null || !st.isDirectory()) {
       out.push({
         path: fullPath,
@@ -249,6 +262,19 @@ function classifyResiduesReadOnly(
     });
   }
   return out;
+}
+
+/** P1-E：路径无法观察（EACCES/EIO 上抛）→ typed IO 拒绝整个 repair——不可验证的
+ * 路径绝不产生「记录退役」提案（无法观察 ≠ 消失/缺席）。 */
+function unreadableRepairResult(
+  path: string,
+  error: unknown
+): { kind: "error"; code: "IO"; message: string } {
+  return {
+    kind: "error",
+    code: "IO",
+    message: `failed to inspect ${path} (${error instanceof Error ? error.message : String(error)}); repair refused — unverifiable paths never produce retirement diffs`,
+  };
 }
 
 /**
@@ -305,7 +331,13 @@ export async function repairState(options: {
 
   // ---- 投影记录 vs 磁盘 ----
   for (const [key, record] of tables.projections) {
-    const rootSt = lstatSafe(record.rootPath);
+    let rootSt: ReturnType<typeof lstatSafe>;
+    try {
+      rootSt = lstatSafe(record.rootPath);
+    } catch (error) {
+      // P1-E：根无法观察 ≠ 消失——绝不据此退役记录，typed IO 拒绝整个 repair
+      return unreadableRepairResult(record.rootPath, error);
+    }
     if (rootSt === null) {
       diff.push({
         code: "ROOT_VANISHED",
@@ -316,7 +348,12 @@ export async function repairState(options: {
       recordRetireKeys.push(key);
       continue;
     }
-    const projSt = lstatSafe(record.path);
+    let projSt: ReturnType<typeof lstatSafe>;
+    try {
+      projSt = lstatSafe(record.path);
+    } catch (error) {
+      return unreadableRepairResult(record.path, error);
+    }
     if (projSt !== null) continue; // 投影位有内容：形态核对在下方（report-only）
     if (record.mode === "link" && record.disabled) continue; // 禁用链缺席 = 禁用的物理形态
     diff.push({
@@ -330,7 +367,12 @@ export async function repairState(options: {
 
   // ---- 投影位被占（report-only：磁盘内容永不动）----
   for (const record of tables.projections.values()) {
-    const projSt = lstatSafe(record.path);
+    let projSt: ReturnType<typeof lstatSafe>;
+    try {
+      projSt = lstatSafe(record.path);
+    } catch (error) {
+      return unreadableRepairResult(record.path, error);
+    }
     if (projSt === null || record.mode !== "link") continue;
     const raw = readlinkSafeOrNull(record.path);
     if (projSt.isSymbolicLink() && raw !== null) continue; // 链在位：归属判定属 remove/update 面
@@ -350,7 +392,13 @@ export async function repairState(options: {
 
   // ---- 实体记录 vs 磁盘 ----
   for (const [key, entity] of tables.entities) {
-    const entitySt = lstatSafe(entity.path);
+    let entitySt: ReturnType<typeof lstatSafe>;
+    try {
+      entitySt = lstatSafe(entity.path);
+    } catch (error) {
+      // P1-E：实体路径无法观察 ≠ 缺席——不判 dangling，typed IO 拒绝
+      return unreadableRepairResult(entity.path, error);
+    }
     if (entitySt !== null && !entitySt.isSymbolicLink() && entitySt.isDirectory()) continue;
     if (!foldersWithProjections.has(entity.folderName)) {
       diff.push({
@@ -373,7 +421,13 @@ export async function repairState(options: {
   // ---- 磁盘 vs sidecar（扫描集上的未注册条目，report-only）----
   const scanRoots = collectScanRoots(tables, entityRoot, options.roots ?? []);
   for (const rootPath of scanRoots) {
-    if (lstatSafe(rootPath) === null) continue;
+    let rootScanable: boolean;
+    try {
+      rootScanable = lstatSafe(rootPath) !== null;
+    } catch (error) {
+      return unreadableRepairResult(rootPath, error);
+    }
+    if (!rootScanable) continue;
     let entries: ScanEntry[];
     try {
       entries = readdirSync(rootPath, { withFileTypes: true }) as never;

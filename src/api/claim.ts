@@ -102,7 +102,17 @@ export async function claimLink(options: {
   const scope: EntityScope = options.scope;
   const linkPath = resolve(options.link);
 
-  const linkSt = lstatSafe(linkPath);
+  let linkSt: ReturnType<typeof lstatSafe>;
+  try {
+    linkSt = lstatSafe(linkPath);
+  } catch (error) {
+    // P1-E：无法观察 ≠ 链缺席——typed IO（绝不落入 LINK_NOT_FOUND 误判）
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the link path ${linkPath} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
   if (linkSt === null) {
     return { kind: "error", code: "LINK_NOT_FOUND", message: `link not found: ${linkPath}` };
   }
@@ -326,12 +336,22 @@ export async function observeClaimTarget(link: string): Promise<
     }
   | {
       kind: "error";
-      code: "LINK_NOT_FOUND" | "LINK_NOT_SYMLINK" | "TARGET_INVALID";
+      /** IO（P1-E）= 链路径无法观察（EACCES/EIO 上抛投影）；与 ClaimFailureCode 的 IO 同码 */
+      code: "LINK_NOT_FOUND" | "LINK_NOT_SYMLINK" | "TARGET_INVALID" | "IO";
       message: string;
     }
 > {
   const linkPath = resolve(link);
-  const linkSt = lstatSafe(linkPath);
+  let linkSt: ReturnType<typeof lstatSafe>;
+  try {
+    linkSt = lstatSafe(linkPath);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the link path ${linkPath} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
   if (linkSt === null) {
     return { kind: "error", code: "LINK_NOT_FOUND", message: `link not found: ${linkPath}` };
   }

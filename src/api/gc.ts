@@ -211,7 +211,17 @@ export async function gcPropose(options: {
     let rootMissing = vanishedRoots.has(rootPath);
     if (!rootMissing && !vanishedRoots.has(`!${rootPath}`)) {
       // `!` 前缀缓存「根存在」判定，避免重复 lstat
-      const rootSt = lstatSafe(rootPath);
+      let rootSt: ReturnType<typeof lstatSafe>;
+      try {
+        rootSt = lstatSafe(rootPath);
+      } catch (error) {
+        // P1-E：根「无法观察」≠ 消失——不得据此提案退役记录；typed IO 拒绝
+        return {
+          kind: "error",
+          code: "IO",
+          message: `failed to inspect the registered projection root ${rootPath} (${error instanceof Error ? error.message : String(error)}); no retirement proposals were made for it`,
+        };
+      }
       if (rootSt === null) {
         vanishedRoots.add(rootPath);
         rootMissing = true;
@@ -243,12 +253,24 @@ export async function gcPropose(options: {
   // entity 零 GC_UNKNOWN_REFERENCE）；实体根内的 alias symlink 仍如实上报
   const entityRoot = entityRootFor(scopeBase);
   const entityRootResolved = resolve(entityRoot);
-  if (!scannedRoots.has(entityRootResolved) && lstatSafe(entityRootResolved) !== null) {
-    unknownReferences.push(
-      ...findUnknownReferencesAtRoot(entityRootResolved, entities, projections, {
-        isEntityRoot: true,
-      })
-    );
+  if (!scannedRoots.has(entityRootResolved)) {
+    let entityRootPresent: boolean;
+    try {
+      entityRootPresent = lstatSafe(entityRootResolved) !== null;
+    } catch (error) {
+      return {
+        kind: "error",
+        code: "IO",
+        message: `failed to inspect the scope entity root ${entityRootResolved} (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
+    if (entityRootPresent) {
+      unknownReferences.push(
+        ...findUnknownReferencesAtRoot(entityRootResolved, entities, projections, {
+          isEntityRoot: true,
+        })
+      );
+    }
   }
 
   return {

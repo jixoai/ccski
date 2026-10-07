@@ -20,8 +20,17 @@
  * 以镜像序列构造（与批 1 state-worker 同法）；镜像一致性由 R4 回滚测试与崩溃后磁盘
  * 形态断言双面钉住。恢复也失败（backup 丢失）形态无特权环境不可确定构造，如实留白。
  */
-import { spawn, execSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execSync, spawn } from "node:child_process";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +43,9 @@ import {
   updateEntity,
   type EntityUpdateResult,
 } from "../src/api/index.js";
+import { sweepReservedResidues } from "../src/core/discovery.js";
+import { projectionRootId } from "../src/core/entity-state.js";
+import { CCSKI_STATE_FILENAME } from "../src/core/state-store.js";
 import {
   cleanupSandbox,
   hashOf,
@@ -42,11 +54,9 @@ import {
   rewriteSkillBody,
   scopeOpts,
   writeSkillSource,
+  writeState,
   type Sandbox,
 } from "./helpers/kernel-fixtures.js";
-import { sweepReservedResidues } from "../src/core/discovery.js";
-import { projectionRootId } from "../src/core/entity-state.js";
-import { CCSKI_STATE_FILENAME } from "../src/core/state-store.js";
 
 function expectUpdateOk(result: EntityUpdateResult): Extract<EntityUpdateResult, { kind: "ok" }> {
   expect(result.kind).toBe("ok");
@@ -56,12 +66,28 @@ function expectUpdateOk(result: EntityUpdateResult): Extract<EntityUpdateResult,
 async function setupUpdateFixture(prefix: string) {
   const sandbox = makeSandbox(prefix, "project");
   const source = writeSkillSource(sandbox.workspace, "alpha", "v1\n");
-  const created = await ensureEntity({ scope: "project", source: { dir: source }, ...scopeOpts(sandbox) });
+  const created = await ensureEntity({
+    scope: "project",
+    source: { dir: source },
+    ...scopeOpts(sandbox),
+  });
   expect(created.kind).toBe("ok");
   const oldRevision = created.kind === "ok" ? created.entity.revision : "";
   const rootLink = join(sandbox.workspace, "agents-link", "skills");
-  await projectEntity({ scope: "project", name: "alpha", roots: [rootLink], ...scopeOpts(sandbox) });
-  return { sandbox, source, oldRevision, entityPath: join(sandbox.entityRoot, "alpha"), rootLink, linkPath: join(rootLink, "alpha") };
+  await projectEntity({
+    scope: "project",
+    name: "alpha",
+    roots: [rootLink],
+    ...scopeOpts(sandbox),
+  });
+  return {
+    sandbox,
+    source,
+    oldRevision,
+    entityPath: join(sandbox.entityRoot, "alpha"),
+    rootLink,
+    linkPath: join(rootLink, "alpha"),
+  };
 }
 
 function updateSource(sandbox: Sandbox, source: string): void {
@@ -76,7 +102,12 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
     const linkTargetBefore = readlinkSync(fx.linkPath);
 
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(ok).toMatchObject({ status: "updated", lockSyncPending: true, failed: 0 });
     expect(ok.entity.revision).not.toBe(fx.oldRevision);
@@ -86,11 +117,15 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
     expect(lstatSync(fx.linkPath).ino).toBe(linkInoBefore);
     expect(readlinkSync(fx.linkPath)).toBe(linkTargetBefore);
     expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).not.toContain("v1\n");
-    expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
+    expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
 
     const record = readState(fx.sandbox.scopeBase).entities["alpha"];
     expect(record.revision).toBe(ok.entity.revision);
-    const projection = readState(fx.sandbox.scopeBase).projections[`${projectionRootId(fx.rootLink)}:alpha`];
+    const projection = readState(fx.sandbox.scopeBase).projections[
+      `${projectionRootId(fx.rootLink)}:alpha`
+    ];
     expect(projection.entityRevision).toBe(ok.entity.revision);
     // 实体根无 staging/backup 残留
     expect(readdirSync(fx.sandbox.entityRoot).filter((n) => n.startsWith(".ccski-"))).toEqual([]);
@@ -101,11 +136,18 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
     const fx = await setupUpdateFixture("upd-unchanged");
     const stateBefore = readFileSync(join(fx.sandbox.scopeBase, CCSKI_STATE_FILENAME), "utf8");
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(ok.status).toBe("unchanged");
     expect(ok.generation).toBe(readState(fx.sandbox.scopeBase).generation);
-    expect(readFileSync(join(fx.sandbox.scopeBase, CCSKI_STATE_FILENAME), "utf8")).toBe(stateBefore);
+    expect(readFileSync(join(fx.sandbox.scopeBase, CCSKI_STATE_FILENAME), "utf8")).toBe(
+      stateBefore
+    );
     cleanupSandbox(fx.sandbox);
   });
 
@@ -131,19 +173,34 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
   it("SOURCE_NAME_MISMATCH / SOURCE_SYMLINK / 实体缺席重建 / ENTITY_MISSING（非法形态）", async () => {
     const fx = await setupUpdateFixture("upd-vocab");
     const other = writeSkillSource(fx.sandbox.workspace, "beta", "other\n");
-    const mismatch = await updateEntity({ scope: "project", name: "alpha", source: { dir: other }, ...scopeOpts(fx.sandbox) });
+    const mismatch = await updateEntity({
+      scope: "project",
+      name: "alpha",
+      source: { dir: other },
+      ...scopeOpts(fx.sandbox),
+    });
     expect(mismatch).toMatchObject({ kind: "error", code: "SOURCE_NAME_MISMATCH" });
 
     const link = join(fx.sandbox.workspace, "src-link");
     symlinkSync(fx.source, link);
-    const symlinked = await updateEntity({ scope: "project", name: "alpha", source: { dir: link }, ...scopeOpts(fx.sandbox) });
+    const symlinked = await updateEntity({
+      scope: "project",
+      name: "alpha",
+      source: { dir: link },
+      ...scopeOpts(fx.sandbox),
+    });
     expect(symlinked).toMatchObject({ kind: "error", code: "SOURCE_SYMLINK" });
 
     // 实体目录被外部删除（dangling record）：update = 换新上位重建（R5 可恢复路径）
     updateSource(fx.sandbox, fx.source);
     rmSync(fx.entityPath, { recursive: true });
     const rebuilt = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(rebuilt.entity.revision).toBe(await hashOf(fx.entityPath));
     expect(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")).not.toContain("v1\n");
@@ -151,7 +208,12 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
     // 非法形态（实体路径被文件占据）→ ENTITY_MISSING
     rmSync(fx.entityPath, { recursive: true });
     writeFileSync(fx.entityPath, "not-a-dir");
-    const invalid = await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) });
+    const invalid = await updateEntity({
+      scope: "project",
+      name: "alpha",
+      source: { dir: fx.source },
+      ...scopeOpts(fx.sandbox),
+    });
     expect(invalid).toMatchObject({ kind: "error", code: "ENTITY_MISSING" });
     cleanupSandbox(fx.sandbox);
   });
@@ -163,11 +225,18 @@ describe("updateEntity：实体稳路径换新（E4）", () => {
       updateSource(fx.sandbox, fx.source);
       execSync(`chflags uchg ${JSON.stringify(fx.entityPath)}`);
       try {
-        const result = await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) });
+        const result = await updateEntity({
+          scope: "project",
+          name: "alpha",
+          source: { dir: fx.source },
+          ...scopeOpts(fx.sandbox),
+        });
         expect(result).toMatchObject({ kind: "error", code: "ENTITY_SWAP_FAILED" });
         expect(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")).toContain("v1");
         const record = readState(fx.sandbox.scopeBase).entities["alpha"];
-        expect((record.lastFailure as Record<string, unknown> | undefined)?.operation).toBe("update");
+        expect((record.lastFailure as Record<string, unknown> | undefined)?.operation).toBe(
+          "update"
+        );
       } finally {
         execSync(`chflags nouchg ${JSON.stringify(fx.entityPath)}`);
       }
@@ -191,14 +260,26 @@ describe("updateEntity：物化逐副本重物化（E4）", () => {
     updateSource(fx.sandbox, fx.source);
 
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(ok.updated).toBe(2);
     expect(ok.failed).toBe(0);
     const copyPath = join(rootMat, "alpha");
-    expect(readFileSync(join(copyPath, "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
-    const record = readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootMat)}:alpha`];
-    expect(record).toMatchObject({ entityRevision: ok.entity.revision, copyHash: ok.entity.revision });
+    expect(readFileSync(join(copyPath, "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
+    const record = readState(fx.sandbox.scopeBase).projections[
+      `${projectionRootId(rootMat)}:alpha`
+    ];
+    expect(record).toMatchObject({
+      entityRevision: ok.entity.revision,
+      copyHash: ok.entity.revision,
+    });
     expect(record.copyIno).toBe(lstatSync(copyPath).ino);
     cleanupSandbox(fx.sandbox);
   });
@@ -214,19 +295,28 @@ describe("updateEntity：物化逐副本重物化（E4）", () => {
       reason: "pinned",
       ...scopeOpts(fx.sandbox),
     } as never);
-    const pinRecord = readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootPin)}:alpha`];
+    const pinRecord = readState(fx.sandbox.scopeBase).projections[
+      `${projectionRootId(rootPin)}:alpha`
+    ];
     // E4/裁决表 #11：pin = source ref + folder hash 组合落 state
     expect(pinRecord.pin).toMatchObject({ folderHash: fx.oldRevision });
     updateSource(fx.sandbox, fx.source);
     const copyBefore = readFileSync(join(rootPin, "alpha", "SKILL.md"), "utf8");
 
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     const pinReceipt = ok.projections.find((p) => p.rootPath === rootPin);
     expect(pinReceipt).toMatchObject({ status: "skipped", code: "PINNED" });
     expect(readFileSync(join(rootPin, "alpha", "SKILL.md"), "utf8")).toBe(copyBefore);
-    expect(readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootPin)}:alpha`]).toEqual(pinRecord);
+    expect(
+      readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootPin)}:alpha`]
+    ).toEqual(pinRecord);
     cleanupSandbox(fx.sandbox);
   });
 
@@ -254,14 +344,21 @@ describe("updateEntity：物化逐副本重物化（E4）", () => {
     updateSource(fx.sandbox, fx.source);
 
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     const diverged = ok.projections.find((p) => p.rootPath === rootMat);
     const converged = ok.projections.find((p) => p.rootPath === rootOk);
     expect(diverged).toMatchObject({ status: "failed", code: "GUARD_PROJECTION" });
     expect(converged).toMatchObject({ status: "updated" });
     expect(existsSync(join(rootMat, "alpha", "local-edit.md"))).toBe(true);
-    expect(readFileSync(join(rootOk, "alpha", "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
+    expect(readFileSync(join(rootOk, "alpha", "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
     cleanupSandbox(fx.sandbox);
   });
 
@@ -278,30 +375,62 @@ describe("updateEntity：物化逐副本重物化（E4）", () => {
     } as never);
     expect(
       (
-        await toggleEntityProjection({ scope: "project", name: "alpha", root: rootMat, action: "disable", ...scopeOpts(fx.sandbox) })
+        await toggleEntityProjection({
+          scope: "project",
+          name: "alpha",
+          root: rootMat,
+          action: "disable",
+          ...scopeOpts(fx.sandbox),
+        })
       ).kind
     ).toBe("ok");
     updateSource(fx.sandbox, fx.source);
 
     const first = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
-    expect(first.projections.find((p) => p.rootPath === rootMat)).toMatchObject({ status: "skipped", code: "PROJECTION_DISABLED" });
+    expect(first.projections.find((p) => p.rootPath === rootMat)).toMatchObject({
+      status: "skipped",
+      code: "PROJECTION_DISABLED",
+    });
     // 副本保持禁用形态与旧内容；记录 revision 不动
     expect(existsSync(join(rootMat, "alpha", ".SKILL.md"))).toBe(true);
-    expect(readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootMat)}:alpha`].entityRevision).toBe(fx.oldRevision);
+    expect(
+      readState(fx.sandbox.scopeBase).projections[`${projectionRootId(rootMat)}:alpha`]
+        .entityRevision
+    ).toBe(fx.oldRevision);
 
     // enable（旧内容，guard 以 copyHash 自洽）→ 再 update 收敛到新内容
     expect(
       (
-        await toggleEntityProjection({ scope: "project", name: "alpha", root: rootMat, action: "enable", ...scopeOpts(fx.sandbox) })
+        await toggleEntityProjection({
+          scope: "project",
+          name: "alpha",
+          root: rootMat,
+          action: "enable",
+          ...scopeOpts(fx.sandbox),
+        })
       ).kind
     ).toBe("ok");
     const second = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
-    expect(second.projections.find((p) => p.rootPath === rootMat)).toMatchObject({ status: "updated" });
-    expect(readFileSync(join(rootMat, "alpha", "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
+    expect(second.projections.find((p) => p.rootPath === rootMat)).toMatchObject({
+      status: "updated",
+    });
+    expect(readFileSync(join(rootMat, "alpha", "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
     cleanupSandbox(fx.sandbox);
   });
 
@@ -320,10 +449,17 @@ describe("updateEntity：物化逐副本重物化（E4）", () => {
     updateSource(fx.sandbox, fx.source);
 
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(ok.projections.find((p) => p.rootPath === rootMat)).toMatchObject({ status: "updated" });
-    expect(readFileSync(join(rootMat, "alpha", "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
+    expect(readFileSync(join(rootMat, "alpha", "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
     cleanupSandbox(fx.sandbox);
   });
 });
@@ -416,7 +552,9 @@ describe("R5 崩溃窗收据（G4；spec: Replace failure restores + Stable-path
     // 复位动作包含摘除，复位后实体内容 hash 与 state revision 重合（一致性断言）
     rmSync(join(fx.entityPath, ".ccski-residue.json"), { force: true });
     expect(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")).toContain("v1");
-    expect(await hashOf(fx.entityPath)).toBe(readState(fx.sandbox.scopeBase).entities["alpha"].revision);
+    expect(await hashOf(fx.entityPath)).toBe(
+      readState(fx.sandbox.scopeBase).entities["alpha"].revision
+    );
     // 链解析恢复；staging 处于「marker 已摘、rename 未达」窗口 → 无 marker 残留由
     // 清扫保守面保留（no-marker 不删），绝不前缀盲删
     expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).toContain("v1");
@@ -445,7 +583,12 @@ describe("R5 崩溃窗收据（G4；spec: Replace failure restores + Stable-path
     expect(sweep.removed.map((r) => r.kind)).toEqual(["backup"]);
     expect(sweep.kept.map((r) => r.reason)).toEqual(["no-marker"]);
     const ok = expectUpdateOk(
-      await updateEntity({ scope: "project", name: "alpha", source: { dir: fx.source }, ...scopeOpts(fx.sandbox) })
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
     );
     expect(ok.status).toBe("updated");
     expect(ok.entity.revision).toBe(await hashOf(fx.entityPath));
@@ -475,7 +618,9 @@ describe("R5 崩溃窗收据（G4；spec: Replace failure restores + Stable-path
     expect(readFileSync(join(backup, "SKILL.md"), "utf8")).toContain("v1");
     expect(readState(fx.sandbox.scopeBase).entities["alpha"].revision).toBe(fx.oldRevision);
     expect(await hashOf(fx.entityPath)).not.toBe(fx.oldRevision);
-    expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).toBe(readFileSync(join(fx.entityPath, "SKILL.md"), "utf8"));
+    expect(readFileSync(join(fx.linkPath, "SKILL.md"), "utf8")).toBe(
+      readFileSync(join(fx.entityPath, "SKILL.md"), "utf8")
+    );
 
     // 收敛：重跑 update（expectedRevision = state 旧值 guard 通过）→ state 刷新一致
     const ok = expectUpdateOk(
@@ -489,7 +634,92 @@ describe("R5 崩溃窗收据（G4；spec: Replace failure restores + Stable-path
     );
     expect(ok.entity.revision).toBe(await hashOf(fx.entityPath));
     expect(readState(fx.sandbox.scopeBase).entities["alpha"].revision).toBe(ok.entity.revision);
-    expect(sweepReservedResidues(fx.sandbox.entityRoot).removed.map((r) => r.kind)).toContain("backup");
+    expect(sweepReservedResidues(fx.sandbox.entityRoot).removed.map((r) => r.kind)).toContain(
+      "backup"
+    );
+    cleanupSandbox(fx.sandbox);
+  });
+});
+
+describe("P0-C 降级投影记录显式上报（终审第三轮；宿主 fail-closed 依据）", () => {
+  /** 注入一条无法 safeParse 的投影记录（损坏记录无收据的形态构造） */
+  function injectInvalidProjectionRecord(
+    fx: {
+      sandbox: Sandbox;
+      rootLink: string;
+    },
+    key: string
+  ): void {
+    const state = readState(fx.sandbox.scopeBase);
+    const mutated: typeof state = {
+      ...state,
+      projections: {
+        ...state.projections,
+        [key]: { kind: "projection", folderName: "garbage-not-a-record" },
+      },
+    };
+    writeState(fx.sandbox.scopeBase, mutated);
+  }
+
+  it("损坏投影记录在场 → ok 显式携带 degradedProjectionState=true + invalidProjectionKeys（updated 路径）", async () => {
+    const fx = await setupUpdateFixture("upd-p0c-a");
+    updateSource(fx.sandbox, fx.source);
+    const badKey = `${projectionRootId(join(fx.sandbox.workspace, "ghost-root", "skills"))}:ghost`;
+    injectInvalidProjectionRecord(fx, badKey);
+
+    const ok = expectUpdateOk(
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
+    );
+    expect(ok.status).toBe("updated");
+    expect(ok.degradedProjectionState).toBe(true);
+    expect(ok.invalidProjectionKeys).toEqual([badKey]);
+    // 收据面只含有效记录（损坏 root 不产生收据——宿主以 degraded 字段判「无收据 ≠ 未登记」）
+    expect(
+      ok.projections.every(
+        (r) => r.path !== join(fx.sandbox.workspace, "ghost-root", "skills", "ghost")
+      )
+    ).toBe(true);
+    // 损坏 raw 条目在 state 原样保留（集合读取丢弃 ≠ 改写持久化）
+    expect(readState(fx.sandbox.scopeBase).projections[badKey]).toBeDefined();
+    cleanupSandbox(fx.sandbox);
+  });
+
+  it("unchanged 路径同样上报：内容未变 + 损坏记录在场 → degradedProjectionState=true", async () => {
+    const fx = await setupUpdateFixture("upd-p0c-b");
+    const badKey = `${projectionRootId(join(fx.sandbox.workspace, "ghost-root", "skills"))}:ghost`;
+    injectInvalidProjectionRecord(fx, badKey);
+
+    const ok = expectUpdateOk(
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
+    );
+    expect(ok.status).toBe("unchanged");
+    expect(ok.degradedProjectionState).toBe(true);
+    expect(ok.invalidProjectionKeys).toEqual([badKey]);
+    cleanupSandbox(fx.sandbox);
+  });
+
+  it("干净基线：无损坏记录 → degradedProjectionState 不出现（字段缺省）", async () => {
+    const fx = await setupUpdateFixture("upd-p0c-c");
+    const ok = expectUpdateOk(
+      await updateEntity({
+        scope: "project",
+        name: "alpha",
+        source: { dir: fx.source },
+        ...scopeOpts(fx.sandbox),
+      })
+    );
+    expect(ok.degradedProjectionState).toBeUndefined();
+    expect(ok.invalidProjectionKeys).toBeUndefined();
     cleanupSandbox(fx.sandbox);
   });
 });

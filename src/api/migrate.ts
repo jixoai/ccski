@@ -203,8 +203,21 @@ function replayJournal(scopeBase: string, warnings: string[]): void {
   if (journal.entries.length === 0) return;
   const remaining: JournalEntry[] = [];
   for (const entry of journal.entries) {
-    const originalSt = lstatSafe(entry.originalPath);
-    const backupSt = lstatSafe(entry.backupPath);
+    let originalSt: ReturnType<typeof lstatSafe>;
+    let backupSt: ReturnType<typeof lstatSafe>;
+    try {
+      originalSt = lstatSafe(entry.originalPath);
+      backupSt = lstatSafe(entry.backupPath);
+    } catch (error) {
+      // P1-E：无法观察 ≠ 缺席——journal 条目保留（下轮 replay 再收敛），不冒进复位/清理
+      warnings.push(
+        `journal replay could not inspect ${entry.originalPath} / ${entry.backupPath} (${
+          error instanceof Error ? error.message : String(error)
+        }); entry kept`
+      );
+      remaining.push(entry);
+      continue;
+    }
     if (originalSt === null && backupSt !== null) {
       // 崩溃于「backup rename 之后、转换完成之前」：原件复位
       try {
@@ -302,7 +315,18 @@ export async function migrateLegacyEntries(options: {
   /** 候选间 sanitize 目标占用（候选间碰撞） */
   const claimedByCandidates = new Map<string, string>();
 
-  if (lstatSafe(entityRoot) !== null) {
+  let entityRootPresent: boolean;
+  try {
+    entityRootPresent = lstatSafe(entityRoot) !== null;
+  } catch (error) {
+    // P1-E：实体根无法观察 → typed IO（不能把「扫不了」当「没有候选」）
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the scope entity root ${entityRoot} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
+  if (entityRootPresent) {
     for (const entry of readDirEntries(entityRoot)) {
       if (entry.name.startsWith(".")) continue; // 保留名/点目录不收编
       const dir = join(entityRoot, entry.name);
@@ -362,7 +386,19 @@ export async function migrateLegacyEntries(options: {
     if (typeof rawRoot !== "string" || rawRoot.length === 0) continue;
     const rootPath = resolve(rawRoot);
     if (rootPath === resolve(entityRoot)) continue; // 实体根已在上面扫过
-    if (lstatSafe(rootPath) === null) continue;
+    let rootPresent: boolean;
+    try {
+      rootPresent = lstatSafe(rootPath) !== null;
+    } catch (error) {
+      // P1-E：根无法观察 ≠ 缺席——IO conflict 如实呈现（该根零提案），其余根继续
+      collisions.push({
+        code: "IO",
+        path: rootPath,
+        message: `failed to inspect the projection root (${error instanceof Error ? error.message : String(error)}); no candidates were proposed for this root`,
+      });
+      continue;
+    }
+    if (!rootPresent) continue;
     for (const entry of readDirEntries(rootPath)) {
       if (!convertibleFolders.has(entry.name)) continue;
       const copyPath = join(rootPath, entry.name);
@@ -435,7 +471,20 @@ export async function migrateLegacyEntries(options: {
   // ---- 实体收编 ----
   for (const candidate of execTargetEntities) {
     // expected hash 守卫：执行期重 hash 对齐计划值（漂移 = 原件不动）
-    const currentSt = lstatSafe(candidate.path);
+    let currentSt: ReturnType<typeof lstatSafe>;
+    try {
+      currentSt = lstatSafe(candidate.path);
+    } catch (error) {
+      // P1-E：无法观察 = 无法执行 hash 守卫 → 原件不动
+      collisions.push({
+        code: "PATH_OCCUPIED",
+        path: candidate.path,
+        message: `legacy directory became unreadable since plan (${
+          error instanceof Error ? error.message : String(error)
+        }); untouched`,
+      });
+      continue;
+    }
     if (currentSt === null || currentSt.isSymbolicLink() || !currentSt.isDirectory()) {
       conflicts.push({
         code: "PATH_OCCUPIED",
@@ -465,7 +514,21 @@ export async function migrateLegacyEntries(options: {
     }
     // 换名候选的目标位检查（同名候选目标位 = 自身路径，由 ensureEntity 的 CAS 复核）
     const entityTargetPath = join(entityRoot, candidate.sanitizeTarget);
-    if (candidate.sanitizeTarget !== candidate.folderName && lstatSafe(entityTargetPath) !== null) {
+    let targetOccupied: boolean;
+    try {
+      targetOccupied = lstatSafe(entityTargetPath) !== null;
+    } catch (error) {
+      targetOccupied = true; // P1-E：无法观察目标位 = 不可上位，保守按占用处理
+      conflicts.push({
+        code: "PATH_OCCUPIED",
+        path: candidate.path,
+        message: `entity target ${entityTargetPath} is unreadable (${
+          error instanceof Error ? error.message : String(error)
+        }); original untouched`,
+      });
+      continue;
+    }
+    if (candidate.sanitizeTarget !== candidate.folderName && targetOccupied) {
       conflicts.push({
         code: "PATH_OCCUPIED",
         path: candidate.path,
@@ -562,7 +625,20 @@ export async function migrateLegacyEntries(options: {
       });
       continue;
     }
-    const currentSt = lstatSafe(candidate.path);
+    let currentSt: ReturnType<typeof lstatSafe>;
+    try {
+      currentSt = lstatSafe(candidate.path);
+    } catch (error) {
+      // P1-E：无法观察 = 无法执行 hash 守卫 → 副本不动
+      conflicts.push({
+        code: "PATH_OCCUPIED",
+        path: candidate.path,
+        message: `legacy copy became unreadable since plan (${
+          error instanceof Error ? error.message : String(error)
+        }); untouched`,
+      });
+      continue;
+    }
     if (currentSt === null || currentSt.isSymbolicLink() || !currentSt.isDirectory()) {
       conflicts.push({
         code: "PATH_OCCUPIED",

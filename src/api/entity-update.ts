@@ -18,6 +18,10 @@
  *   [3] 记录收敛（disabled-after-update）：link 记录（含 disabled）entityRevision 刷新
  *       + stale 清除 + disabled 保留——update 后 enable 直接可用；物化 disabled 记录
  *       不动（保持旧 revision，enable 后 update 收敛）
+ *   [4] 降级投影显式上报（终审第三轮 P0-C）：ok 结果携带 degradedProjectionState/
+ *       invalidProjectionKeys（ParsedRecordTable.invalidKeys 透出）——损坏记录不产
+ *       收据，宿主以它判「该 root 无收据 ≠ 未登记」（fail closed），内核决策不消费
+ *       该诊断（仍只遍历有效记录）
  * 妥协声明：重物化的磁盘半区在 state CAS 之外（并发投影创建的记录冲突由 commit 时
  * fresh 表复核暴露为 reconcile 错误）；swap 与 state 提交之间的崩溃窗收据归 G4
  * （tests/helpers/swap-worker.ts 组合生产原语 + 真 SIGKILL，生产零钩子）。
@@ -25,18 +29,19 @@
 import { lstatSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { computeSkillFolderHash } from "../core/folder-hash.js";
 import {
-  type EntityRecord,
-  type EntityScope,
   entityRootFor,
   parseEntityTable,
   parseProjectionTable,
   resolveScopeBase,
+  type EntityRecord,
+  type EntityScope,
 } from "../core/entity-state.js";
-import { emptyState, StateStore } from "../core/state-store.js";
+import { computeSkillFolderHash } from "../core/folder-hash.js";
 import { parseSkillFile } from "../core/parser.js";
 import { sanitizeSourceUrl } from "../core/source-url.js";
+import { emptyState, StateStore } from "../core/state-store.js";
+import { lstatSafe, materializedCopyGuard } from "./entity-guards.js";
 import {
   commitTransform,
   materializeCopy,
@@ -46,7 +51,6 @@ import {
   type EntitySnapshot,
   type EntitySourceInput,
 } from "./entity.js";
-import { lstatSafe, materializedCopyGuard } from "./entity-guards.js";
 
 export interface EntityUpdateOptions {
   /** 显式 scope（缺省/非法 = SCOPE_REQUIRED） */
@@ -118,6 +122,16 @@ export type EntityUpdateResult =
       /** ccski 永不写 npm lock（分层单写者）；宿主流程诚实上报 */
       lockSyncPending: true;
       warnings: string[];
+      /**
+       * 降级投影记录在场（终审第三轮 P0-C，未发布 3.0.0 发版前演进）：state 的
+       * projections 表存在无法 safeParse 的记录（ParsedRecordTable 丢弃集非空）。
+       * 该 root 因此**没有收据**——宿主不得把「无收据」当「未登记 root」走 legacy
+       * 清理（删除用户内容）；应把该 root 视为不可判定并 fail closed。仅诊断用途，
+       * 不驱动内核决策（内核行为不变：只遍历有效记录）。
+       */
+      degradedProjectionState?: boolean;
+      /** 无法解析的投影记录键名（invalidKeys 如实透出；诊断用途） */
+      invalidProjectionKeys?: string[];
     }
   | { kind: "error"; code: EntityUpdateFailureCode; message: string };
 
@@ -167,7 +181,17 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
     };
   }
   const entityPath = entityRecord.path;
-  const entitySt = lstatSafe(entityPath);
+  let entitySt: ReturnType<typeof lstatSafe>;
+  try {
+    entitySt = lstatSafe(entityPath);
+  } catch (error) {
+    // P1-E：无法观察 ≠ 缺席（缺席 = dangling record 合法允许换新上位）
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the recorded entity path ${entityPath} (${detail(error)})`,
+    };
+  }
   if (entitySt !== null && (entitySt.isSymbolicLink() || !entitySt.isDirectory())) {
     return {
       kind: "error",
@@ -180,9 +204,22 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
 
   // ---- source 校验（与 ensureEntity 同管线）----
   const sourceDir = resolve(options.source.dir);
-  const sourceSt = lstatSafe(sourceDir);
+  let sourceSt: ReturnType<typeof lstatSafe>;
+  try {
+    sourceSt = lstatSafe(sourceDir);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the source directory ${sourceDir} (${detail(error)})`,
+    };
+  }
   if (sourceSt === null) {
-    return { kind: "error", code: "SOURCE_NOT_FOUND", message: `source directory not found: ${sourceDir}` };
+    return {
+      kind: "error",
+      code: "SOURCE_NOT_FOUND",
+      message: `source directory not found: ${sourceDir}`,
+    };
   }
   if (sourceSt.isSymbolicLink()) {
     return {
@@ -192,7 +229,11 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
     };
   }
   if (!sourceSt.isDirectory()) {
-    return { kind: "error", code: "SOURCE_NOT_DIRECTORY", message: `source exists but is not a directory: ${sourceDir}` };
+    return {
+      kind: "error",
+      code: "SOURCE_NOT_DIRECTORY",
+      message: `source exists but is not a directory: ${sourceDir}`,
+    };
   }
   let sourceName: string;
   try {
@@ -212,7 +253,10 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
     };
   }
 
-  if (typeof options.expectedRevision === "string" && options.expectedRevision !== entityRecord.revision) {
+  if (
+    typeof options.expectedRevision === "string" &&
+    options.expectedRevision !== entityRecord.revision
+  ) {
     return {
       kind: "error",
       code: "GUARD_ENTITY",
@@ -225,7 +269,11 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
   try {
     staging = stageEntityCopy(sourceDir, entityRoot);
   } catch (error) {
-    return { kind: "error", code: "IO", message: `failed to stage entity copy from ${sourceDir}: ${detail(error)}` };
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to stage entity copy from ${sourceDir}: ${detail(error)}`,
+    };
   }
   let newRevision: string;
   try {
@@ -256,7 +304,9 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         return { kind: "apply" };
       });
       const stateNote =
-        marked.kind === "committed" ? "state recorded the failed generation" : `state failure note was not committed (${marked.kind})`;
+        marked.kind === "committed"
+          ? "state recorded the failed generation"
+          : `state failure note was not committed (${marked.kind})`;
       return {
         kind: "error",
         code: "ENTITY_SWAP_FAILED",
@@ -275,7 +325,14 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
   }
 
   // ---- 物化逐副本重物化 + link 记录收敛（磁盘半区，随后一次 CAS 提交）----
-  const projections = parseProjectionTable(base.projections).records;
+  // P0-C：捕获完整表（含 invalidKeys）——损坏投影记录不产生收据，宿主必须能从
+  // degradedProjectionState/invalidProjectionKeys 判「该 root 无收据 ≠ 未登记」。
+  const projectionTable = parseProjectionTable(base.projections);
+  const projections = projectionTable.records;
+  const degradedReport =
+    projectionTable.invalidKeys.length > 0
+      ? { degradedProjectionState: true, invalidProjectionKeys: [...projectionTable.invalidKeys] }
+      : undefined;
   const receipts: EntityUpdateProjectionResult[] = [];
   const pendingRecordUpdates = new Map<string, Record<string, unknown>>();
 
@@ -291,7 +348,8 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
     if (record.mode === "link") {
       // link：按路径语义自然解析新内容，零磁盘操作；记录相对实体发散（revision 旧/
       // stale 标注）即收敛——replace 换新后跑 update 同样清除 stale（disabled 保留）
-      const diverged = contentChanged || record.entityRevision !== newRevision || record.stale === true;
+      const diverged =
+        contentChanged || record.entityRevision !== newRevision || record.stale === true;
       if (diverged) {
         pendingRecordUpdates.set(key, {
           entityRevision: newRevision,
@@ -320,7 +378,8 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         ...baseFields,
         status: "skipped",
         code: "PINNED",
-        detail: "projection is pinned (source ref + folder hash in state); the copy is never re-materialized by update",
+        detail:
+          "projection is pinned (source ref + folder hash in state); the copy is never re-materialized by update",
       });
       continue;
     }
@@ -329,11 +388,24 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         ...baseFields,
         status: "skipped",
         code: "PROJECTION_DISABLED",
-        detail: "disabled copy is left at its disabled form; enable it and re-run update to converge",
+        detail:
+          "disabled copy is left at its disabled form; enable it and re-run update to converge",
       });
       continue;
     }
-    const copySt = lstatSafe(record.path);
+    let copySt: ReturnType<typeof lstatSafe>;
+    try {
+      copySt = lstatSafe(record.path);
+    } catch (error) {
+      // P1-E：副本位无法观察 ≠ 缺席（缺席才允许无破坏重建）
+      receipts.push({
+        ...baseFields,
+        status: "failed",
+        code: "IO",
+        detail: `failed to inspect the copy path ${record.path} (${detail(error)}); untouched`,
+      });
+      continue;
+    }
     if (copySt === null) {
       // 副本缺席：重物化重建（无可破坏内容）
       const rebuilt = materializeCopy(entityPath, record.rootPath, record.path);
@@ -341,7 +413,12 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         receipts.push({
           ...baseFields,
           status: "failed",
-          code: rebuilt.code === "COPY_FAILED" ? "COPY_FAILED" : rebuilt.code === "TARGET_DENIED" ? "TARGET_DENIED" : "IO",
+          code:
+            rebuilt.code === "COPY_FAILED"
+              ? "COPY_FAILED"
+              : rebuilt.code === "TARGET_DENIED"
+                ? "TARGET_DENIED"
+                : "IO",
           detail: rebuilt.error ?? "re-materialization failed",
         });
         continue;
@@ -354,7 +431,11 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         copyIno: freshSt.ino,
         updatedAt: isoNow(),
       });
-      receipts.push({ ...baseFields, status: "updated", detail: "copy was absent; re-materialized from the new entity" });
+      receipts.push({
+        ...baseFields,
+        status: "updated",
+        detail: "copy was absent; re-materialized from the new entity",
+      });
       continue;
     }
     if (copySt.isSymbolicLink() || !copySt.isDirectory()) {
@@ -362,7 +443,8 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
         ...baseFields,
         status: "failed",
         code: "GUARD_PROJECTION",
-        detail: "the recorded copy path is now a symlink or non-directory entry; refusing to re-materialize over it",
+        detail:
+          "the recorded copy path is now a symlink or non-directory entry; refusing to re-materialize over it",
       });
       continue;
     }
@@ -382,7 +464,9 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
       // guard 已证副本字节即为当前 revision：已收敛，免 swap（不做无谓 inode 翻动）；
       // 记录面仅在确有漂移时对账（避免 no-op update 的 state 写放大）
       const drifted =
-        record.entityRevision !== newRevision || record.copyHash !== newRevision || record.copyIno !== copySt.ino;
+        record.entityRevision !== newRevision ||
+        record.copyHash !== newRevision ||
+        record.copyIno !== copySt.ino;
       if (drifted) {
         pendingRecordUpdates.set(key, {
           entityRevision: newRevision,
@@ -420,7 +504,11 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
       copyIno: freshSt.ino,
       updatedAt: isoNow(),
     });
-    receipts.push({ ...baseFields, status: "updated", detail: "copy re-materialized from the new entity after its own guard passed" });
+    receipts.push({
+      ...baseFields,
+      status: "updated",
+      detail: "copy re-materialized from the new entity after its own guard passed",
+    });
   }
 
   // ---- state 收官（一次 CAS：实体刷新 + link/副本记录收敛）----
@@ -438,6 +526,7 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
       generation: base.generation,
       lockSyncPending: true,
       warnings,
+      ...(degradedReport ?? {}),
     };
   }
   const updatedAt = isoNow();
@@ -456,7 +545,11 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
   const commit = await commitTransform(store, (tables) => {
     const record = tables.entities.get(entityRecord.folderName);
     if (record === undefined) {
-      return { kind: "reject" as const, code: "ENTITY_NOT_FOUND", message: `entity record vanished concurrently` };
+      return {
+        kind: "reject" as const,
+        code: "ENTITY_NOT_FOUND",
+        message: `entity record vanished concurrently`,
+      };
     }
     if (record.revision !== entityRecord.revision) {
       return {
@@ -503,6 +596,7 @@ export async function updateEntity(options: EntityUpdateOptions): Promise<Entity
       generation: commit.generation,
       lockSyncPending: true,
       warnings,
+      ...(degradedReport ?? {}),
     };
   }
   const reconcile =

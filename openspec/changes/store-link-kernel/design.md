@@ -97,3 +97,21 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 5. **与物化副本守卫的语义闭环核对**：`materializedCopyGuard`（copyHash/copyIno，lstat 时点 + 单次哈希 + rm）与本守卫同一闭合级——哈希单源同函数、inode 判据同 lstat 语义；实体路径额外加 fd pin 与 digest 复读，原因是其「哈希 → 销毁」之间隔着 state commit（可秒级），比物化路径的紧邻 rm 宽得多。不重复造第三套判据。
 6. **残余窗口（诚实声明）**：verify 通过 → `rmSync` 之间及 rmSync 自身执行中的原位改写不可观测——Node fs 无按 fd 销毁 API，属平台边界；与物化副本守卫的残余同级。确定性测试按 Codex 要求锚「调用前注入改写」（tests/entity-delete-race.test.ts：deleteEntity 原位改写/目录换体/symlink 换体 + GC 原位改写/目录换体，断言 typed 拒绝 + 实体/投影/state/generation 全原样 + 两条无竞态基线不误伤）；窗口内注入无确定性 seam，由 guard 单元收据（rename 换体/原位改写/目录 inode 换体/路径消失/symlink 五形态）覆盖判据本身。
 7. **API 形状**：Options/Result 零变化；新增拒绝全部落在既有词表（`GUARD_ENTITY`）或 warning 字符串（`GC_ENTITY_DISK_GUARD:` 前缀，对齐 `GC_UNKNOWN_REFERENCE:` 先例），`EntityRemoveGcReport.blockedBy` 三态联合不为本拒绝类扩面。
+
+## 终审第二轮回流裁决（2026-10-07 第三轮内核修复，Codex 5.5/10 否决项）
+
+**P0-A 实体初始缺席时删除并发重建目录**：absent 门的唯一合法动作 = 退役 dangling state 记录；磁盘路径绝不由该门处置（旧实现 destroy 半区无条件 `rmSync(recursive, force)`——CAS 等待窗口内同名重建的内容被当 ccski 财产删除）。裁决：`destroyGuardedEntity` 的 absent 分支不再删除，路径在场（重建）以 `entityPresentOnDisk` 诊断 + warning 如实上报（deleteEntity ok 变体与 GC 报告同字段）；残留收敛走既有拓扑（未记录目录 → 下次 install `ENTITY_PATH_OCCUPIED` typed 可见 → 批 5 repair）。确定性回归：`StateStore.prototype.commit` spy 在退役 CAS 入口注入真重建（含 precious 文件），断言记录退役 + 内容原样。
+
+**P0-B 全树重算期间换体仍通过**：复读哈希是异步读取屏障——屏障内整目录换体（同内容新目录 + 附加文件）返回的是定格哈希，等值比对天然通过；旧实现哈希通过即 rmSync，inode 判据只在哈希**前**跑过一次。裁决：哈希复读通过后、rmSync 之前**追加第二次身份复核**（目录 inode + 身份源 inode + fd digest——同 P0-3 判据，零第三套实现）；复核时点路径已消失 = 无可销毁内容（deleted 如实）。残余窗口收敛到「第二次复核 → rmSync」微窗口，与物化副本守卫同级（Node 无按 fd 销毁 API，平台边界，本节与 P0-3 第 6 条同一诚实声明）。确定性回归：folder-hash 计数钩子（vi.mock 透传包裹，不 mock fs）在第 2 次实体哈希返回定格值后真换体。
+
+**P0-C（内核半）损坏投影记录静默丢弃 → 宿主误判未登记**：`ParsedRecordTable` 丢弃集在 updateEntity 只用于内部遍历，宿主把「该 root 无收据」当「未登记 root」走 legacy 清理删了用户内容。钉死契约（未发布 3.0.0 发版前演进，新可选字段、词表零扩）：ok 变体携带 `degradedProjectionState?: boolean`（任一无效投影记录在场即 true）与 `invalidProjectionKeys?: string[]`（invalidKeys 如实透出）；**仅诊断用途不驱动内核决策**（内核仍只遍历有效记录、raw 条目原样保留）；宿主半区（无收据 ∧ degraded → fail closed 拒绝 legacy 清理）由并行子代理按本契约实现。
+
+**P1-D expectedRevision 贯穿删除事务**：末投影 GC 退役此前只以 state 记录为基准——调用方校验后、删除提交前实体被并发换新，旧删除请求仍可删新实体。契约：`EntityRemoveOptions.expectedEntityRevision?: string`（可选；deleteEntity 的 expectedRevision 语义不变）；在场时**入口比对**（不符 typed `GUARD_ENTITY`，投影/实体/state 零副作用——「验证后更新再删除」竞态的唯一确定性拦截点）+ **退役 CAS 复核**（transform 内先于 guarded-revision 检查——调用方观察值在场时是更强授权基准；不符 typed `GUARD_ENTITY`，实体保留零副作用，已发生的投影删除磁盘事实在 message 如实说明）。`EntityRemoveFailureCode` 复用在册 `GUARD_ENTITY`（词表不扩）。
+
+**P1-E lstatSafe 吞错 + pin fd 泄漏**：
+1. 缺席 errno 纪律：`entity-guards.lstatSafe` 仅折叠 `ENOENT` + `ENOTDIR` 为 null，其余 errno 原样上抛、由调用方 typed 投影。**ENOTDIR 论证**：lstat 只在**路径组件**（非终条目）为非目录时报 ENOTDIR——终条目在该路径下不可能存在（`[ -e ]` 同语义），折叠不会把在场内容误判缺席，rmSync 对这类路径也只会再报 ENOTDIR；不折叠则扫描循环（投影根被文件盖帽后的逐条目 lstat）全体上抛。
+2. 投影矩阵（8 文件 37 站点全审）：remove 逐根 → `IO` 收据；remove/deleteEntity 引用复核 → 保守 unknown 引用阻塞（fail closed）；disk-guard open/verify → refused/复核拒绝；update 实体/源/副本位 → typed `IO`；toggle 四站点 → typed `IO`；gc 根不可读 → typed `IO`（绝不产 root-vanished 提案）；repair 全部 diff/扫描站点 → typed `IO`（不可验证路径零退役提案）；claim 两站点 → typed `IO`（observe 联合补入在册 `IO`）；migrate journal replay → 条目保留 + warning、根不可读 → `IO` conflict、执行守卫 → `PATH_OCCUPIED` 原件不动。
+3. pin fd 生命周期：deleteEntity 与 GC 路径的「退役 CAS + 守卫销毁」整段 try/finally 包裹，recovery/conflict/rejected 提前返回必关 fd（destroy 内部幂等 close 保留，双关无害）；确定性断言经 entity-disk-guard open/close 计数包裹（行为透传）。
+4. 边界声明：`entity.ts` 的**私有** lstatSafe（install/swap 面，非本终审证据）保持折叠语义——其「误判缺席」最多造成标签级不精确（SOURCE_NOT_FOUND vs IO），无销毁向量（swap 对非空目录的最终 rename 以 ENOTEMPTY 安全失败、旧实体不丢）；统一收敛另立后续，不偷渡进本轮。
+
+**API 形状**：`EntityRemoveOptions.expectedEntityRevision?`、`DeleteEntityResult.entityPresentOnDisk?`、`EntityRemoveGcReport.entityPresentOnDisk?`、`EntityUpdateResult.degradedProjectionState?/invalidProjectionKeys?` 全部为未发布 3.0.0 发版前新增可选字段（宿主并行子代理按此契约编码，形状不得偏离）；词表零扩（`GUARD_ENTITY`/`IO`/`GC_UNKNOWN_REFERENCE` 均在册）。

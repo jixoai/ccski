@@ -10,21 +10,37 @@
  *   [2] 物化副本自身 guard（spec: Ownership-first removal「the copy's own
  *       revision/inode guard」）：hash（copyHash ?? entityRevision 回退）+ inode
  *       双判据；任一不符 = GUARD_PROJECTION（换体拒删/拒改路径不动）
+ *   [3] 缺席 errno 纪律（终审 P1-E）：lstatSafe 只把 ENOENT/ENOTDIR 折叠为
+ *       null（目标条目在该路径下确实不存在）；EACCES/EIO 等其余 errno 不是
+ *       缺席证据，原样上抛由调用方 typed 投影——「查询失败」绝不冒充「缺席」
  * 妥协声明：本文件是 entity 内核家族（toggle/remove/update）的共享判定层，不做
  * IO mutation；hash 读取失败按 guard 不符保守拒绝（词表核对表 §2：守卫读取失败
  * 并入 GUARD_ENTITY/GUARD_PROJECTION 两态）。
  */
-import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import type { Stats } from "node:fs";
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { computeSkillFolderHash } from "../core/folder-hash.js";
 
+/**
+ * POSIX「目标不存在」errno 集（终审 P1-E）。ENOTDIR 论证：lstat 只在**路径组件**
+ * （非终条目）是非目录时报 ENOTDIR——终条目在该路径下不可能存在（shell `[ -e ]`
+ * 同语义）；折叠它不会把「在场内容」误判为缺席（该路径下本就没有可删/可收编的
+ * 条目，rmSync 对这类路径也只会再报 ENOTDIR）。EACCES/EIO/EPERM 等其余 errno
+ * 是「无法观察」而非「不存在」，必须上抛 typed 投影。
+ */
+export function isAbsentErrno(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
 export function lstatSafe(path: string): Stats | null {
   try {
     return lstatSync(path);
-  } catch {
-    return null;
+  } catch (error) {
+    if (isAbsentErrno(error)) return null;
+    throw error;
   }
 }
 

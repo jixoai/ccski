@@ -89,7 +89,16 @@ function sha256(buffer: Buffer): string {
  * （win32）由 lstat(symlink 不跟随) + fstat 交叉复核兜底同一判据。
  */
 export function openEntityDiskGuard(entityPath: string): EntityDiskGuardOpen {
-  const dirSt = lstatSafe(entityPath);
+  let dirSt: ReturnType<typeof lstatSafe>;
+  try {
+    dirSt = lstatSafe(entityPath);
+  } catch (error) {
+    // P1-E：无法观察 ≠ 缺席——身份无法 pin 即保守拒绝（绝不落入 absent 分支）
+    return {
+      kind: "refused",
+      reason: `failed to inspect the entity path ${entityPath} (${detailOf(error)})`,
+    };
+  }
   if (dirSt === null) return { kind: "absent" };
   if (!dirSt.isDirectory()) {
     return {
@@ -98,7 +107,15 @@ export function openEntityDiskGuard(entityPath: string): EntityDiskGuardOpen {
     };
   }
   const skillPath = join(entityPath, SKILL_MD);
-  const skillSt = lstatSafe(skillPath);
+  let skillSt: ReturnType<typeof lstatSafe>;
+  try {
+    skillSt = lstatSafe(skillPath);
+  } catch (error) {
+    return {
+      kind: "refused",
+      reason: `failed to inspect the entity identity file ${skillPath} (${detailOf(error)})`,
+    };
+  }
   if (skillSt === null) {
     return {
       kind: "refused",
@@ -165,7 +182,12 @@ function verifyPinnedIdentity(
   fd: number,
   identity: EntityDiskIdentity
 ): EntityDiskVerifyResult {
-  const dirSt = lstatSafe(entityPath);
+  let dirSt: ReturnType<typeof lstatSafe>;
+  try {
+    dirSt = lstatSafe(entityPath);
+  } catch (error) {
+    return { ok: false, reason: `entity directory became unreadable (${detailOf(error)})` };
+  }
   if (dirSt === null) return { ok: true, present: false };
   if (!dirSt.isDirectory() || dirSt.dev !== identity.dir.dev || dirSt.ino !== identity.dir.ino) {
     return {
@@ -174,7 +196,15 @@ function verifyPinnedIdentity(
     };
   }
   const skillPath = join(entityPath, SKILL_MD);
-  const skillSt = lstatSafe(skillPath);
+  let skillSt: ReturnType<typeof lstatSafe>;
+  try {
+    skillSt = lstatSafe(skillPath);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `entity identity file ${SKILL_MD} became unreadable at ${skillPath} (${detailOf(error)})`,
+    };
+  }
   if (skillSt === null) {
     return { ok: false, reason: `entity identity file ${SKILL_MD} vanished from ${entityPath}` };
   }

@@ -23,20 +23,25 @@
 import { existsSync, renameSync, symlinkSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { computeSkillFolderHash } from "../core/folder-hash.js";
 import {
-  type EntityRecord,
-  type EntityScope,
   entityRootFor,
   parseEntityTable,
   parseProjectionTable,
   projectionRecordKey,
   projectionRootId,
   resolveScopeBase,
+  type EntityRecord,
+  type EntityScope,
 } from "../core/entity-state.js";
+import { computeSkillFolderHash } from "../core/folder-hash.js";
 import { emptyState, StateStore } from "../core/state-store.js";
-import { commitTransform, isCanonicalEntityRoot, toSnapshot, type EntitySnapshot } from "./entity.js";
 import { lstatSafe, materializedCopyGuard, symlinkTargetsEntity } from "./entity-guards.js";
+import {
+  commitTransform,
+  isCanonicalEntityRoot,
+  toSnapshot,
+  type EntitySnapshot,
+} from "./entity.js";
 
 export type EntityToggleAction = "enable" | "disable";
 
@@ -124,7 +129,9 @@ function unchangedReceipt(
  * materialized = .SKILL.md rename 的 ccski-legacy 约定；canonical root = entity-local
  * skipped 收据。磁盘 mutation 先行，state CAS 随后（失败诚实上报重跑入口）。
  */
-export async function toggleEntityProjection(options: EntityToggleOptions): Promise<EntityToggleResult> {
+export async function toggleEntityProjection(
+  options: EntityToggleOptions
+): Promise<EntityToggleResult> {
   if (options.scope !== "global" && options.scope !== "project") {
     return {
       kind: "error",
@@ -194,7 +201,17 @@ export async function toggleEntityProjection(options: EntityToggleOptions): Prom
   const projection = parseProjectionTable(base.projections).records.get(recordKey);
   if (projection === undefined) {
     // 无记录：external live-link typed 只读；同目标未注册链/未注册条目如实区分
-    const st = lstatSafe(projPath);
+    let st: ReturnType<typeof lstatSafe>;
+    try {
+      st = lstatSafe(projPath);
+    } catch (error) {
+      // P1-E：无法观察 ≠ 缺席——typed 拒绝（不落入「nothing to toggle」误判）
+      return {
+        kind: "error",
+        code: "IO",
+        message: `failed to inspect the projection path ${projPath} (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
     if (st?.isSymbolicLink() && !symlinkTargetsEntity(projPath, entityPath)) {
       return {
         kind: "error",
@@ -226,7 +243,15 @@ export async function toggleEntityProjection(options: EntityToggleOptions): Prom
       store,
     });
   }
-  return toggleMaterialized({ options, projection, recordKey, projPath, entityPath, baseGeneration: base.generation, store });
+  return toggleMaterialized({
+    options,
+    projection,
+    recordKey,
+    projPath,
+    entityPath,
+    baseGeneration: base.generation,
+    store,
+  });
 }
 
 interface ToggleArgs {
@@ -249,7 +274,16 @@ interface ToggleArgs {
 /** link 面启停（E3）：disable = ownership 校验 + unlink；enable = ENTITY_REVISED 闸 + 重建链 */
 async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
   const { options, projection, recordKey, projPath, entityPath, baseGeneration, store } = args;
-  const st = lstatSafe(projPath);
+  let st: ReturnType<typeof lstatSafe>;
+  try {
+    st = lstatSafe(projPath);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the link projection path ${projPath} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
 
   if (options.action === "disable") {
     // 磁盘形态守卫：非「symlink 且指向本实体」的形态 = 换体——link 面绝不写
@@ -282,13 +316,21 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
       try {
         unlinkSync(projPath);
       } catch (error) {
-        return toggleFsError(error, `projection root denied unlink`, `failed to unlink link projection ${projPath}`);
+        return toggleFsError(
+          error,
+          `projection root denied unlink`,
+          `failed to unlink link projection ${projPath}`
+        );
       }
     }
     const commit = await commitTransform(store, (tables) => {
       const record = tables.projections.get(recordKey);
       if (record === undefined) {
-        return { kind: "reject", code: "PROJECTION_NOT_FOUND", message: `projection record ${recordKey} vanished concurrently` };
+        return {
+          kind: "reject",
+          code: "PROJECTION_NOT_FOUND",
+          message: `projection record ${recordKey} vanished concurrently`,
+        };
       }
       tables.projections.set(recordKey, { ...record, disabled: true, updatedAt: isoNow() });
       return { kind: "apply" };
@@ -309,11 +351,23 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
         warnings: [],
       };
     }
-    return toggleStateError(commit, `the link at ${projPath} was removed on disk but state was not updated`);
+    return toggleStateError(
+      commit,
+      `the link at ${projPath} was removed on disk but state was not updated`
+    );
   }
 
   // enable：先 ENTITY_REVISED 闸（记录 revision vs 当前实体 revision），再重建链
-  const entitySt = lstatSafe(entityPath);
+  let entitySt: ReturnType<typeof lstatSafe>;
+  try {
+    entitySt = lstatSafe(entityPath);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the entity directory ${entityPath} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
   if (entitySt === null || entitySt.isSymbolicLink() || !entitySt.isDirectory()) {
     return {
       kind: "error",
@@ -340,7 +394,11 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
       kind: "error",
       code: "GUARD_PROJECTION",
       message: `the projection path ${projPath} is occupied by ${
-        st.isSymbolicLink() ? "a foreign symlink" : st.isDirectory() ? "a real directory" : "a non-directory entry"
+        st.isSymbolicLink()
+          ? "a foreign symlink"
+          : st.isDirectory()
+            ? "a real directory"
+            : "a non-directory entry"
       }; refusing to enable over it`,
     };
   }
@@ -348,13 +406,21 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
     try {
       symlinkSync(entityPath, projPath);
     } catch (error) {
-      return toggleFsError(error, "projection root denied symlink creation", `failed to recreate link projection ${projPath}`);
+      return toggleFsError(
+        error,
+        "projection root denied symlink creation",
+        `failed to recreate link projection ${projPath}`
+      );
     }
   }
   const commit = await commitTransform(store, (tables) => {
     const record = tables.projections.get(recordKey);
     if (record === undefined) {
-      return { kind: "reject", code: "PROJECTION_NOT_FOUND", message: `projection record ${recordKey} vanished concurrently` };
+      return {
+        kind: "reject",
+        code: "PROJECTION_NOT_FOUND",
+        message: `projection record ${recordKey} vanished concurrently`,
+      };
     }
     tables.projections.set(recordKey, {
       ...record,
@@ -381,7 +447,10 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
       warnings: [],
     };
   }
-  return toggleStateError(commit, `the link at ${projPath} was recreated on disk but state was not updated`);
+  return toggleStateError(
+    commit,
+    `the link at ${projPath} was recreated on disk but state was not updated`
+  );
 }
 
 /**
@@ -390,7 +459,16 @@ async function toggleLink(args: ToggleArgs): Promise<EntityToggleResult> {
  */
 async function toggleMaterialized(args: ToggleArgs): Promise<EntityToggleResult> {
   const { options, projection, recordKey, projPath, baseGeneration, store } = args;
-  const st = lstatSafe(projPath);
+  let st: ReturnType<typeof lstatSafe>;
+  try {
+    st = lstatSafe(projPath);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "IO",
+      message: `failed to inspect the copy projection path ${projPath} (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
 
   if (st !== null && (st.isSymbolicLink() || !st.isDirectory())) {
     return {
@@ -454,13 +532,21 @@ async function toggleMaterialized(args: ToggleArgs): Promise<EntityToggleResult>
     try {
       renameSync(enabledFile, disabledFile);
     } catch (error) {
-      return toggleFsError(error, "projection root denied the disable rename", `failed to rename SKILL.md to .SKILL.md at ${projPath}`);
+      return toggleFsError(
+        error,
+        "projection root denied the disable rename",
+        `failed to rename SKILL.md to .SKILL.md at ${projPath}`
+      );
     }
     const refreshedHash = await hashDirectory(projPath);
     const commit = await commitTransform(store, (tables) => {
       const record = tables.projections.get(recordKey);
       if (record === undefined) {
-        return { kind: "reject", code: "PROJECTION_NOT_FOUND", message: `projection record ${recordKey} vanished concurrently` };
+        return {
+          kind: "reject",
+          code: "PROJECTION_NOT_FOUND",
+          message: `projection record ${recordKey} vanished concurrently`,
+        };
       }
       tables.projections.set(recordKey, {
         ...record,
@@ -479,12 +565,16 @@ async function toggleMaterialized(args: ToggleArgs): Promise<EntityToggleResult>
         path: projPath,
         disabled: true,
         convention: "ccski-legacy",
-        detail: "SKILL.md renamed to .SKILL.md (ccski-legacy convention, not an npm:skills semantic); copyHash guard refreshed",
+        detail:
+          "SKILL.md renamed to .SKILL.md (ccski-legacy convention, not an npm:skills semantic); copyHash guard refreshed",
         generation: commit.generation,
         warnings: [],
       };
     }
-    return toggleStateError(commit, `the copy at ${projPath} was disabled on disk but state was not updated`);
+    return toggleStateError(
+      commit,
+      `the copy at ${projPath} was disabled on disk but state was not updated`
+    );
   }
 
   // enable：guard 已过 → 换回启用形态（无实体 revision 闸，副本合法滞后）
@@ -515,13 +605,21 @@ async function toggleMaterialized(args: ToggleArgs): Promise<EntityToggleResult>
   try {
     renameSync(disabledFile, enabledFile);
   } catch (error) {
-    return toggleFsError(error, "projection root denied the enable rename", `failed to rename .SKILL.md to SKILL.md at ${projPath}`);
+    return toggleFsError(
+      error,
+      "projection root denied the enable rename",
+      `failed to rename .SKILL.md to SKILL.md at ${projPath}`
+    );
   }
   const refreshedHash = await hashDirectory(projPath);
   const commit = await commitTransform(store, (tables) => {
     const record = tables.projections.get(recordKey);
     if (record === undefined) {
-      return { kind: "reject", code: "PROJECTION_NOT_FOUND", message: `projection record ${recordKey} vanished concurrently` };
+      return {
+        kind: "reject",
+        code: "PROJECTION_NOT_FOUND",
+        message: `projection record ${recordKey} vanished concurrently`,
+      };
     }
     tables.projections.set(recordKey, {
       ...record,
@@ -540,15 +638,23 @@ async function toggleMaterialized(args: ToggleArgs): Promise<EntityToggleResult>
       path: projPath,
       disabled: false,
       convention: "ccski-legacy",
-      detail: ".SKILL.md renamed back to SKILL.md (ccski-legacy convention); copyHash guard refreshed",
+      detail:
+        ".SKILL.md renamed back to SKILL.md (ccski-legacy convention); copyHash guard refreshed",
       generation: commit.generation,
       warnings: [],
     };
   }
-  return toggleStateError(commit, `the copy at ${projPath} was enabled on disk but state was not updated`);
+  return toggleStateError(
+    commit,
+    `the copy at ${projPath} was enabled on disk but state was not updated`
+  );
 }
 
-function toggleFsError(error: unknown, deniedLabel: string, fallbackLabel: string): EntityToggleResult {
+function toggleFsError(
+  error: unknown,
+  deniedLabel: string,
+  fallbackLabel: string
+): EntityToggleResult {
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
     return {
@@ -596,4 +702,4 @@ async function hashDirectory(dir: string): Promise<string | null> {
 }
 
 // re-export 便于宿主单点导入（entity 家族同源类型）
-export { type EntityScope, type EntitySnapshot, toSnapshot };
+export { toSnapshot, type EntityScope, type EntitySnapshot };
