@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Scope-aware entity layer
-The package SHALL maintain a canonical entity layer per scope: global entities under `$HOME/.agents/skills/<folderName>`, project entities under `<workspace>/.agents/skills/<folderName>`. `folderName` SHALL be derived from the logical skill name by a frozen sanitize algorithm (lowercase; spaces/underscores to hyphens; other characters to hyphens; matching npm:skills behavior). Two logical names sanitizing to the same folderName MUST be rejected with typed `NAME_COLLISION`. Mutations without an explicit scope MUST be rejected with typed `SCOPE_REQUIRED`; no implicit scope precedence or dual view exists in the SDK.
+The package SHALL maintain a canonical entity layer per scope: global entities under `$HOME/.agents/skills/<folderName>`, project entities under `<workspace>/.agents/skills/<folderName>`. `folderName` SHALL be derived from the logical skill name by a frozen sanitize algorithm exactly matching npm:skills 1.7.1 `sanitizeName`: lowercase; runs of characters outside `[a-z0-9._]` replaced with a hyphen (underscores and dots are preserved); leading/trailing `.`/`-` stripped; capped at 255 characters; empty result falls back to `unnamed-skill`. Two logical names sanitizing to the same folderName MUST be rejected with typed `NAME_COLLISION`. Mutations without an explicit scope MUST be rejected with typed `SCOPE_REQUIRED`; no implicit scope precedence or dual view exists in the SDK.
 
 #### Scenario: Scope required for mutation
 - **WHEN** a consumer calls any mutating API without an explicit `scope`

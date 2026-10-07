@@ -75,3 +75,7 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 2. **gc 范围**：3.0 只交付 `gc --dry-run`（与 spec 冻结面一致）；执行协议如需另立 change，不在本 change 偷偷扩面。
 3. **uniqueDirs<=1 静默 copy（1.7.1 实测）**：npm 在全部目标共享同一 skillsDir 时静默 copy 无 canonical 实体——**已知分歧，不照抄**：ccski ensureEntity 恒建实体；投影根 == 实体根的形态已由 Codex 裁决冻结（2026-10-07）：**第四形态 entity-local**——收据 targetKind:"entity"/mode:"entity-local"/reason:"canonical-root"，path=canonicalPath=entityPath；不建链不复制不写投影记录（实体记录唯一权威），幂等；requestedMode 保留在收据（禁自拷贝伪装独立副本）；canonical root 不参与投影 disable/remove，remove 走实体 mutation 受 GUARD_ENTITY 保护。spec「Canonical root yields entity-local receipt」Scenario 同步。
 4. **hash 算法代际**：1.7.1 = sha256 + localeCompare 排序（G0 收据 F1-F7 钉死）；本机存量 lock 存在旧算法 40-hex 条目——批 6 宿主切换时 update-check 需裁决代际差异兼容（建议：旧代 hash 视为 stale 触发一次重装收敛，具体批 6 定）。
+
+## 实现期契约修正（2026-10-07，批 3 回流，MainAgent 亲验 dist 源码）
+
+**sanitize 分歧修正**：spec 原句「spaces/underscores to hyphens」源自评审转述，与 npm:skills 1.7.1 dist 实读不符。dist 事实（cli.mjs sanitizeName，已亲验）：`toLowerCase().replace(/[^a-z0-9._]+/g,"-").replace(/^[.\-]+|[.\-]+$/g,"").substring(0,255) || "unnamed-skill"`——**下划线与点保留**、集合外游程转连字符、首尾 `.-` 剥离、255 截断、空落 unnamed-skill。裁决：ccski 对齐 dist（内核一致优先；spec 已同步修正）。后果消除：npm 装 `my_skill` 与 ccski 装 `my-skill` 不再分叉成两目录。
