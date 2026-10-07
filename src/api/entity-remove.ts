@@ -14,12 +14,19 @@
  *       roots（∪ 显式 roots）lstat/realpath 复核无 ccski-owned 引用 ∧ 无未知引用；
  *       未知引用保留实体 + GC_UNKNOWN_REFERENCE warning；external live-link 不计入
  *       删除权限也不阻塞（非引用）；GC 永不猜路径（只扫 state 登记过的 roots 与本次
- *       显式 roots）；state 退役先行（CAS 内复核零记录 + GUARD_ENTITY）、目录删除随后
+ *       显式 roots）；state 退役先行（CAS 内复核零记录 + guarded revision）、目录删除随后
  *   [3] deleteEntity（canonical root 的实体 mutation 半区）：expectedRevision guard
  *       （GUARD_ENTITY）+ 零投影记录（PROJECTIONS_REMAIN）+ 无引用复核后退役实体
- * 妥协声明：GC 的磁盘复核是时点快照（scan 与 commit 之间的外部链竞态由 CAS 内零记录
- * 复核 + 发现层 broken omission 兜底可见）；state 退役成功而目录删除失败时残留未记录
- * 目录（后续 ensure 报 ENTITY_PATH_OCCUPIED typed 可见，收编归批 5 repair/migrate）。
+ *   [4] 实体销毁绑定磁盘真相（终审 P0-3）：deleteEntity 与末投影 GC 在退役/销毁前重算
+ *       磁盘实体 revision（computeSkillFolderHash）与调用方 expectedRevision + state
+ *       记录双重比对（deleteEntity）或与 state 记录比对（GC），不符 → typed 拒绝/
+ *       GC 拒绝且零磁盘副作用；「重算 → 销毁」窗口由 entity-disk-guard 的目录 inode +
+ *       SKILL.md fd 身份判据守卫（防重算与销毁之间换体）
+ * 妥协声明：GC 的引用复核是时点快照（scan 与 commit 之间的外部链竞态由 CAS 内零记录
+ * 复核 + 发现层 broken omission 兜底可见）；「复核通过 → rmSync」的微窗口是 Node API
+ * 边界（无按 fd 销毁），闭合级与物化副本 guard 同一语义环（design.md 终审回流节）；
+ * state 退役成功而销毁被换体守卫拒绝或删除失败时残留未记录目录（后续 ensure 报
+ * ENTITY_PATH_OCCUPIED typed 可见，收编归批 5 repair/migrate）。
  */
 import { realpathSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
@@ -34,8 +41,10 @@ import {
   projectionRootId,
   resolveScopeBase,
 } from "../core/entity-state.js";
+import { computeSkillFolderHash } from "../core/folder-hash.js";
 import { emptyState, StateStore } from "../core/state-store.js";
 import { commitTransform, isCanonicalEntityRoot, toSnapshot, type EntitySnapshot } from "./entity.js";
+import { type EntityDiskGuardHandle, openEntityDiskGuard } from "./entity-disk-guard.js";
 import { lstatSafe, materializedCopyGuard, symlinkTargetsEntity } from "./entity-guards.js";
 
 export interface EntityRemoveOptions {
@@ -372,7 +381,16 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
     return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
   }
 
-  // 条件满足：state 退役先行（CAS 内复核零记录），目录删除随后
+  // 磁盘绑定门（终审 P0-3）：末投影 GC 的实体销毁同样绑定磁盘实体 revision（基准 =
+  // 实体记录）；磁盘被并发改写/换体 → 实体保留（记录与磁盘原样，零销毁副作用），
+  // 投影 remove 的成功结果不受影响。
+  const gcGate = await gateEntityDestruction(entityPath, [entityRecord.revision]);
+  if (gcGate.kind === "refused") {
+    gc.warnings.push(`GC_ENTITY_DISK_GUARD: ${gcGate.reason}; entity kept (state record and disk content preserved)`);
+    return { kind: "ok", entity: toSnapshot(entityRecord), entityRemoved: false, results, removed, skipped, failed, gc, generation };
+  }
+
+  // 条件满足：state 退役先行（CAS 内复核零记录 + guarded revision），目录销毁随后
   const retire = await commitTransform(store, (tables) => {
     for (const record of tables.projections.values()) {
       if (record.folderName === folderName) {
@@ -383,27 +401,35 @@ export async function removeEntityProjections(options: EntityRemoveOptions): Pro
         };
       }
     }
-    if (!tables.entities.has(folderName)) {
+    const record = tables.entities.get(folderName);
+    if (record === undefined) {
       return { kind: "reject" as const, code: "ALREADY_GONE", message: `entity record for "${folderName}" already retired` };
+    }
+    if (record.revision !== entityRecord.revision) {
+      return {
+        kind: "reject" as const,
+        code: "REVISION",
+        message: `entity "${folderName}" was revised concurrently (revision ${record.revision.slice(0, 12)} vs guarded ${entityRecord.revision.slice(0, 12)}); entity kept`,
+      };
     }
     tables.entities.delete(folderName);
     return { kind: "apply" as const, deleteEntityKeys: [folderName] };
   });
   if (retire.kind === "committed") {
     generation = retire.generation;
-    try {
-      rmSync(entityPath, { recursive: true, force: true });
-      gc.entityDeleted = true;
-    } catch (error) {
-      gc.warnings.push(
-        `entity record was retired but the directory could not be deleted: ${
-          error instanceof Error ? error.message : String(error)
-        }; residual directory at ${entityPath} is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`
-      );
+    const destroyed = await destroyGuardedEntity(entityPath, gcGate);
+    gc.entityDeleted = destroyed.deleted;
+    if (destroyed.warning !== undefined) gc.warnings.push(destroyed.warning);
+  } else if (retire.kind === "rejected") {
+    if (retire.code === "PROJECTIONS") {
+      gc.blockedBy = "PROJECTIONS";
+      gc.warnings.push(retire.message);
+    } else if (retire.code === "REVISION") {
+      // 实体被并发 ccski mutation 换新：销毁拒绝（blockedBy 词表三态均不适用，
+      // warning 如实承载；GC 的 blockedBy 联合不为本拒绝类扩面）
+      gc.warnings.push(`GC_ENTITY_DISK_GUARD: ${retire.message}`);
     }
-  } else if (retire.kind === "rejected" && retire.code !== "ALREADY_GONE") {
-    gc.blockedBy = "PROJECTIONS";
-    gc.warnings.push(retire.message);
+    // ALREADY_GONE = 并发 GC 已退役（entityDeleted=false 如实）
   } else if (retire.kind === "recovery-required") {
     gc.warnings.push(`GC not committed: state degraded read-only (${retire.detail})`);
   } else if (retire.kind === "conflict-exhausted") {
@@ -463,8 +489,10 @@ export type DeleteEntityResult =
 /**
  * deleteEntity：canonical root 的实体删除半区（E4 裁决——实体 mutation 受
  * GUARD_ENTITY）。要求零投影记录（PROJECTIONS_REMAIN）与全注册 roots 无引用复核
- * （owned/unknown 引用均拒绝，unknown 以 GC_UNKNOWN_REFERENCE 呈现）；state 退役
- * （CAS 内复核 guard 与零记录）先行，目录删除随后。
+ * （owned/unknown 引用均拒绝，unknown 以 GC_UNKNOWN_REFERENCE 呈现）；expectedRevision
+ * 与 state 记录之外还必须绑定磁盘实体树（重算 revision 双重比对 + 销毁窗口身份守卫，
+ * 终审 P0-3——宿主校验后实体被并发改写时拒绝销毁、零磁盘副作用）；state 退役
+ * （CAS 内复核 guard 与零记录）先行，守卫销毁随后。
  */
 export async function deleteEntity(options: DeleteEntityOptions): Promise<DeleteEntityResult> {
   if (options.scope !== "global" && options.scope !== "project") {
@@ -545,6 +573,18 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
     };
   }
 
+  // 磁盘绑定门（终审 P0-3）：expectedRevision 必须同时绑定 state 记录与磁盘实体树
+  // （重算 computeSkillFolderHash 双重比对）；磁盘被并发改写/换体 → GUARD_ENTITY，
+  // state 记录与磁盘内容零副作用。销毁窗口由 fd/inode 身份判据守卫（entity-disk-guard）。
+  const gate = await gateEntityDestruction(entityPath, [options.expectedRevision, entityRecord.revision]);
+  if (gate.kind === "refused") {
+    return {
+      kind: "error",
+      code: "GUARD_ENTITY",
+      message: `deleteEntity refused by the on-disk entity guard: ${gate.reason}; entity untouched (state record and disk content preserved)`,
+    };
+  }
+
   const retire = await commitTransform(store, (tables) => {
     const record = tables.entities.get(folderName);
     if (record === undefined) {
@@ -573,25 +613,134 @@ export async function deleteEntity(options: DeleteEntityOptions): Promise<Delete
     return { kind: "error", code, message: `${retire.message} (entity untouched on disk)` };
   }
 
-  const warnings: string[] = [];
-  let directoryDeleted = false;
-  try {
-    rmSync(entityPath, { recursive: true, force: true });
-    directoryDeleted = true;
-  } catch (error) {
-    warnings.push(
-      `entity record was retired but the directory could not be deleted: ${
-        error instanceof Error ? error.message : String(error)
-      }; residual directory at ${entityPath} is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`
-    );
-  }
+  // state 已退役：销毁前过第二道守卫（身份复核 + 全树哈希复核；换体拒绝销毁）
+  const destroyed = await destroyGuardedEntity(entityPath, gate);
   return {
     kind: "ok",
     entity: toSnapshot(entityRecord),
-    directoryDeleted,
+    directoryDeleted: destroyed.deleted,
     generation: retire.generation,
-    warnings,
+    warnings: destroyed.warning !== undefined ? [destroyed.warning] : [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// 共享判定：实体销毁的磁盘绑定守卫（终审 P0-3）
+// ---------------------------------------------------------------------------
+
+type EntityDestructionGate =
+  | { kind: "absent" }
+  | { kind: "pinned"; handle: EntityDiskGuardHandle; diskRevision: string }
+  | { kind: "refused"; reason: string };
+
+/**
+ * 销毁前磁盘门（P0-3）：pin 实体磁盘身份（entity-disk-guard）→ 重算磁盘实体
+ * revision（computeSkillFolderHash，entityRevision 的唯一表示）→ 与基准集双重比对
+ * → 身份复核。任一不符 → refused（零 state/磁盘副作用：调用方在 retire 之前拒绝）。
+ * absent = dangling record（磁盘无实体内容，无需守卫，销毁退化为记录退役）。
+ */
+async function gateEntityDestruction(
+  entityPath: string,
+  expectedRevisions: readonly string[]
+): Promise<EntityDestructionGate> {
+  const opened = openEntityDiskGuard(entityPath);
+  if (opened.kind !== "pinned") return opened;
+  const { handle } = opened;
+  let diskRevision: string;
+  try {
+    diskRevision = await computeSkillFolderHash(entityPath);
+  } catch (error) {
+    handle.close();
+    return {
+      kind: "refused",
+      reason: `entity revision unreadable at ${entityPath} (${
+        error instanceof Error ? error.message : String(error)
+      })`,
+    };
+  }
+  for (const expected of expectedRevisions) {
+    if (diskRevision !== expected) {
+      handle.close();
+      return {
+        kind: "refused",
+        reason: `on-disk entity revision ${diskRevision.slice(0, 12)} does not match ${
+          expected.length > 0 ? expected.slice(0, 12) : "(missing)"
+        } (entity content was rewritten concurrently)`,
+      };
+    }
+  }
+  const pinned = handle.verify(entityPath);
+  if (!pinned.ok) {
+    handle.close();
+    return { kind: "refused", reason: pinned.reason };
+  }
+  return { kind: "pinned", handle, diskRevision };
+}
+
+/**
+ * 带守卫的实体销毁：state 退役提交之后调用。pinned 门 → 身份复核（目录 inode +
+ * SKILL.md fd；换体拒绝销毁）→ 全树哈希复核（内容在门后又被改写拒绝销毁）→ rmSync。
+ * refused/失败一律不碰目录，残留以 warning 如实呈现（与既有 rm 失败同一报告形态）。
+ */
+async function destroyGuardedEntity(
+  entityPath: string,
+  gate: Exclude<EntityDestructionGate, { kind: "refused" }>
+): Promise<{ deleted: boolean; warning?: string }> {
+  if (gate.kind === "absent") {
+    try {
+      rmSync(entityPath, { recursive: true, force: true });
+      return { deleted: true };
+    } catch (error) {
+      return { deleted: false, warning: residualDirectoryWarning(entityPath, error) };
+    }
+  }
+  const { handle, diskRevision } = gate;
+  try {
+    const post = handle.verify(entityPath);
+    if (!post.ok) {
+      return {
+        deleted: false,
+        warning: `entity record was retired but the on-disk entity no longer matches the guarded identity (${post.reason}); directory left untouched at ${entityPath} and is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
+      };
+    }
+    if (!post.present) {
+      return { deleted: true }; // 路径已消失：无可销毁内容；同名重建会被 inode 复核拦下
+    }
+    let rehashed: string;
+    try {
+      rehashed = await computeSkillFolderHash(entityPath);
+    } catch (error) {
+      return {
+        deleted: false,
+        warning: `entity record was retired but the entity tree became unreadable (${
+          error instanceof Error ? error.message : String(error)
+        }); directory left untouched at ${entityPath} and is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
+      };
+    }
+    if (rehashed !== diskRevision) {
+      return {
+        deleted: false,
+        warning: `entity record was retired but the entity content changed concurrently (revision ${diskRevision.slice(
+          0,
+          12
+        )} → ${rehashed.slice(0, 12)}); directory left untouched at ${entityPath} and is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`,
+      };
+    }
+    try {
+      rmSync(entityPath, { recursive: true, force: true });
+      return { deleted: true };
+    } catch (error) {
+      return { deleted: false, warning: residualDirectoryWarning(entityPath, error) };
+    }
+  } finally {
+    handle.close();
+  }
+}
+
+function residualDirectoryWarning(entityPath: string, error: unknown): string {
+  return `entity record was retired but the directory could not be deleted: ${
+    error instanceof Error ? error.message : String(error)
+  }; residual directory at ${entityPath} is unrecorded (typed ENTITY_PATH_OCCUPIED on next install; repair belongs to batch 5)`;
 }
 
 // ---------------------------------------------------------------------------

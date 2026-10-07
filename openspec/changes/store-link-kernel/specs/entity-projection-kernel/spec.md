@@ -62,7 +62,7 @@ For link projections, `disable(root, name)` SHALL verify ccski ownership, unlink
 - **THEN** the call fails typed `ENTITY_REVISED` and the projection remains disabled.
 
 ### Requirement: Ownership-first removal and entity GC
-`remove` SHALL operate projection-first: link projections are unlinked (never recursively removed through a link), materialized projections delete their directory with the copy's own revision/inode guard failing typed `GUARD_PROJECTION` on mismatch (external replacement of a projection path mid-flight MUST be detected, never deleted as if owned). Entity replacement and entity-affecting mutations MUST be guarded by the entity's expected revision, failing typed `GUARD_ENTITY` on mismatch. Entity and provenance cleanup happens only when state has no active projection AND no ccski-owned reference exists among all registered roots (lstat/realpath verified) AND no unknown reference exists (unknown references keep the entity with a typed warning). External live-links never count toward deletion authority.
+`remove` SHALL operate projection-first: link projections are unlinked (never recursively removed through a link), materialized projections delete their directory with the copy's own revision/inode guard failing typed `GUARD_PROJECTION` on mismatch (external replacement of a projection path mid-flight MUST be detected, never deleted as if owned). Entity replacement and entity-affecting mutations MUST be guarded by the entity's expected revision, failing typed `GUARD_ENTITY` on mismatch. Entity destruction (`deleteEntity` and the last-projection GC path) SHALL bind to the on-disk entity revision: before any state retirement or directory destruction the kernel recomputes the entity tree hash (the single-source folder hash that IS the entity revision) and compares it against both the caller's `expectedRevision` and the state record (`deleteEntity`) or against the state record (GC); a mismatch fails typed `GUARD_ENTITY` (`deleteEntity`) or keeps the entity with a disk-guard warning (GC), in both cases with zero disk side effects. The window between the revision recompute and physical destruction SHALL be guarded by a stable file-identity check (the entity directory's inode plus the pinned `SKILL.md` fd identity incl. content digest): a concurrent replacement of the entity body is refused destruction and reported as an unrecorded residual, never deleted as if owned. Entity and provenance cleanup happens only when state has no active projection AND no ccski-owned reference exists among all registered roots (lstat/realpath verified) AND no unknown reference exists (unknown references keep the entity with a typed warning). External live-links never count toward deletion authority.
 
 #### Scenario: Replaced projection path is refused
 - **WHEN** a materialized projection's on-disk inode/content no longer matches its recorded guard
@@ -71,6 +71,18 @@ For link projections, `disable(root, name)` SHALL verify ccski ownership, unlink
 #### Scenario: Entity revision guard on replace
 - **WHEN** a replace is requested with an `expectedRevision` that no longer matches the entity
 - **THEN** the mutation fails typed `GUARD_ENTITY` and the entity is untouched.
+
+#### Scenario: Host-validated entity rewritten out-of-band before deletion
+- **WHEN** the caller validates the entity revision and the entity content on disk is rewritten before `deleteEntity` is called with that revision
+- **THEN** `deleteEntity` fails typed `GUARD_ENTITY` and the entity directory with its rewritten content, the state record, and the state generation are all left untouched.
+
+#### Scenario: GC refuses to destroy a rewritten entity
+- **WHEN** the last projection is removed but the entity content on disk no longer matches the recorded entity revision
+- **THEN** the projection removal itself succeeds, the entity is kept with its rewritten content and state record intact, and the GC report carries a disk-guard warning.
+
+#### Scenario: Entity body swapped during the retire window
+- **WHEN** the entity directory or its `SKILL.md` identity file is replaced between the revision recompute and the physical destruction
+- **THEN** destruction is refused, the replaced on-disk content is never deleted as if owned, and the already-retired record is reported as an unrecorded residual with a typed-visible next-install error.
 
 #### Scenario: Last projection removal GCs the entity
 - **WHEN** the final ccski-owned projection of an entity is removed and no references remain

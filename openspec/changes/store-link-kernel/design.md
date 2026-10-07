@@ -83,3 +83,17 @@ CLI 层默认投影集合（SDK 恒显式 roots）：检测到 agent = detected 
 ## 批 5 实现期裁决（2026-10-07，MainAgent 批准）
 
 (a) ccski CLI 的 git/marketplace 安装源 3.0 退役 → typed `SOURCE_UNSUPPORTED` 指路宿主（git clone+install 本就是 skill-creator repository 域的职责）；(b) CLI mutation 缺省 scope = project（`--global` 切换；SDK 恒显式；与 npm 的 auto-detect 缺省为已知 CLI 层差异，不违 parity——parity 钉的是投影集合非 scope 缺省）；(c) migrate expected hash 守卫 = `--plan` 文件回传（无回传时同调用内 scan→execute 重 hash，并发窗由 CAS 收窄）；(d) agent 注册表 = npm 1.7.1 语义镜像非逐键复制（universal-class 压缩共享 canonical 根；zcode 检测不含 /Applications 探针——hermetic 优先）；(e) 批 5 命令面新增 finite 码 DRY_RUN_REQUIRED/NO_GLOBAL_INSTALL/HASH_MISMATCH 已补进 spec 对应 Requirement（词表闭合纪律）。
+
+## 宿主迁移终审回流裁决（2026-10-07 P0-3，Codex 终审 → 内核修复）
+
+**缺陷**：宿主（Creator 语义）在 `await` 内核调用前校验内容 revision，但 `deleteEntity` 的 `expectedRevision` 只与 state 记录比对、从不核对磁盘当前实体树——宿主校验后实体内容被并发改写再调删除，内核仍按 state 记录放行并销毁已被改写的磁盘内容（数据丢失竞态）。末投影 GC 的实体销毁路径同族（基准只有 state 记录）。
+
+**裁决与实现**（`src/api/entity-remove.ts` + `src/api/entity-disk-guard.ts`）：
+
+1. **revision 表示**：entity revision = `computeSkillFolderHash`（entity-state.ts 注释与 EntityRecord.revision 语义钉死的单源），守卫直接复用该函数，不引入第二种哈希口径。
+2. **销毁前磁盘门（零副作用拒绝）**：`deleteEntity` 在 state 退役提交**之前**重算磁盘实体树哈希，与调用方 `expectedRevision` + state 记录**双重比对**；末投影 GC 以 state 实体记录为基准同构。不符 → `deleteEntity` typed `GUARD_ENTITY` / GC 以 `GC_ENTITY_DISK_GUARD` warning 拒绝销毁，两路径 state 记录与磁盘内容零副作用。GC retire 的 CAS transform 内追加 guarded-revision 复核（记录在门与提交之间被并发 ccski mutation 换新 → REVISION reject，实体保留），补齐并发写者象限。
+3. **为什么不在 state 锁内持锁重算**：state 锁只串行化 ccski state 写者，对带外磁盘改写者（本竞态的对手方）没有任何互斥力；把哈希搬进锁内不改变攻击面。闭不变量改为「(CAS + transform 内 revision 复核) ∨ (磁盘身份 pin + 销毁前复核)」——state 侧竞态由 CAS 收口，磁盘侧竞态由身份判据收口，二者合取即 Codex 要求的「同一事务语义」的实际达成方式，且不加新的锁序。
+4. **「重算 → 销毁」窗口第二道守卫**（`entity-disk-guard.ts`，模块内导出、不进包根公共面）：pin 实体目录 lstat inode + `SKILL.md` 持久 fd（`O_NOFOLLOW` 平台可用时启用；win32 由 lstat 不跟随 + lstat↔fstat 交叉复核兜底）+ fd 全文 digest。销毁前 verify：目录 inode 不符（整目录换体）/ 身份源路径 inode 不符（rename 盖帽换体，目录 inode 不变也可查）/ fd digest 漂移（原位字节改写）任一命中即拒绝销毁——state 已退役的场合按既有残留拓扑如实 warning（未记录目录 + 下次 install `ENTITY_PATH_OCCUPIED` typed 可见 + 批 5 repair 收敛），绝不为「收干净」反向删除换体后的内容。销毁前另有全树哈希复读（destroyGuardedEntity 内），覆盖 commit 窗口（锁等待最长 5s）内非身份文件的改动。
+5. **与物化副本守卫的语义闭环核对**：`materializedCopyGuard`（copyHash/copyIno，lstat 时点 + 单次哈希 + rm）与本守卫同一闭合级——哈希单源同函数、inode 判据同 lstat 语义；实体路径额外加 fd pin 与 digest 复读，原因是其「哈希 → 销毁」之间隔着 state commit（可秒级），比物化路径的紧邻 rm 宽得多。不重复造第三套判据。
+6. **残余窗口（诚实声明）**：verify 通过 → `rmSync` 之间及 rmSync 自身执行中的原位改写不可观测——Node fs 无按 fd 销毁 API，属平台边界；与物化副本守卫的残余同级。确定性测试按 Codex 要求锚「调用前注入改写」（tests/entity-delete-race.test.ts：deleteEntity 原位改写/目录换体/symlink 换体 + GC 原位改写/目录换体，断言 typed 拒绝 + 实体/投影/state/generation 全原样 + 两条无竞态基线不误伤）；窗口内注入无确定性 seam，由 guard 单元收据（rename 换体/原位改写/目录 inode 换体/路径消失/symlink 五形态）覆盖判据本身。
+7. **API 形状**：Options/Result 零变化；新增拒绝全部落在既有词表（`GUARD_ENTITY`）或 warning 字符串（`GC_ENTITY_DISK_GUARD:` 前缀，对齐 `GC_UNKNOWN_REFERENCE:` 先例），`EntityRemoveGcReport.blockedBy` 三态联合不为本拒绝类扩面。
