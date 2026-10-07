@@ -1,13 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { getSkillInfo } from "../src/api/info.js";
-import { installSkills } from "../src/api/install.js";
 import { listSkills } from "../src/api/list.js";
 import { searchSkills } from "../src/api/search.js";
-import { toggleSkills } from "../src/api/toggle.js";
 import { validateSkill } from "../src/api/validate.js";
 
 function createSkill(root: string, name: string, disabled = false, body = ""): string {
@@ -134,44 +132,5 @@ describe("programmatic API", () => {
         claudePluginsFile: join(cwd, "missing-plugins.json"),
       })
     ).rejects.toThrow("Could not find SKILL.md");
-  });
-
-  it("toggles skills programmatically", async () => {
-    const skillDir = createSkill(cwd, "toggle-me");
-
-    const disabled = await toggleSkills("disable", {
-      names: ["toggle-me"],
-      skillDir: [cwd],
-      scanDefaultDirs: false,
-      claudePluginsFile: join(cwd, "missing-plugins.json"),
-    });
-    expect(disabled.succeeded).toBe(1);
-    expect(existsSync(join(skillDir, ".SKILL.md"))).toBe(true);
-
-    const enabled = await toggleSkills("enable", {
-      names: ["toggle-me"],
-      skillDir: [cwd],
-      scanDefaultDirs: false,
-      claudePluginsFile: join(cwd, "missing-plugins.json"),
-    });
-    expect(enabled.succeeded).toBe(1);
-    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(true);
-  });
-
-  it("installs skills and supports dry-run previews", async () => {
-    const sourceRoot = mkdtempSync(join(tmpdir(), "ccski-api-source-"));
-    const source = createSkill(sourceRoot, "install-me");
-    const dest = mkdtempSync(join(tmpdir(), "ccski-api-dest-"));
-
-    const preview = await installSkills({ source, outDir: [dest], dryRun: true });
-    expect("dryRun" in preview && preview.dryRun).toBe(true);
-    expect(existsSync(join(dest, "install-me"))).toBe(false);
-
-    const result = await installSkills({ source, outDir: [dest] });
-    expect("results" in result).toBe(true);
-    if ("results" in result) {
-      expect(result.installed).toBe(1);
-      expect(existsSync(join(dest, "install-me"))).toBe(true);
-    }
   });
 });

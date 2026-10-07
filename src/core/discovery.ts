@@ -24,29 +24,30 @@
 import type { Dirent } from "node:fs";
 import {
   existsSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
-  readdirSync,
   realpathSync,
   rmSync,
   statSync,
-} from "node:fs";import { homedir } from "node:os";
+} from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CcskiDiagnostic } from "../types/diagnostics.js";
 import { diagnosticToWarning } from "../types/diagnostics.js";
-import { CCSKI_STATE_FILENAME, readCcskiStateFileSync } from "./state-store.js";
 import type {
   Skill,
   SkillEntryKind,
   SkillLocation,
   SkillMetadata,
   SkillOwnership,
-  SkillProvider,
   SkillProvenance,
+  SkillProvider,
   SkillSourceKind,
 } from "../types/skill.js";
 import { parseSkillFile } from "./parser.js";
 import { getDefaultSkillDirectories } from "./skill-roots.js";
+import { CCSKI_STATE_FILENAME, readCcskiStateFileSync } from "./state-store.js";
 
 export { getDefaultSkillDirectories } from "./skill-roots.js";
 
@@ -165,6 +166,11 @@ export interface DiscoveryKernelState {
   /** entities 表记录的实体路径（resolve + realpath 双形态；entity-local 区分依据） */
   entityPaths: Set<string>;
   linkProjectionPaths: Set<string>;
+  /**
+   * 批 5 STALE_PROJECTION 报告面：state 标注 stale 的 link 投影路径
+   * （resolve + realpath 双形态）。发现层只读呈现，标注/清除仍在 mutation 面。
+   */
+  staleLinkPaths: Set<string>;
   /** state 只读降级诊断（每损坏 base 一条；发现层不硬失败） */
   recovery: CcskiDiagnostic[];
 }
@@ -194,7 +200,8 @@ function collectStateRecordPaths(
   table: Record<string, unknown>,
   owned: Set<string>,
   links?: Set<string>,
-  entityPaths?: Set<string>
+  entityPaths?: Set<string>,
+  staleLinks?: Set<string>
 ): void {
   for (const value of Object.values(table)) {
     if (!isRecordValue(value)) continue;
@@ -202,6 +209,10 @@ function collectStateRecordPaths(
     addOwnedPath(owned, value.path);
     if (links && value.mode === "link") addOwnedPath(links, value.path);
     if (entityPaths) addOwnedPath(entityPaths, value.path);
+    // 批 5 STALE_PROJECTION 报告面：state 侧 stale 标注的 link 记录路径
+    if (staleLinks && value.mode === "link" && value.stale === true) {
+      addOwnedPath(staleLinks, value.path);
+    }
   }
 }
 
@@ -221,6 +232,7 @@ export function readKernelStateView(stateBases: string[]): DiscoveryKernelState 
     ownedPaths: new Set(),
     entityPaths: new Set(),
     linkProjectionPaths: new Set(),
+    staleLinkPaths: new Set(),
     recovery: [],
   };
   for (const base of view.bases) {
@@ -238,7 +250,13 @@ export function readKernelStateView(stateBases: string[]): DiscoveryKernelState 
       continue;
     }
     collectStateRecordPaths(read.data.entities, view.ownedPaths, undefined, view.entityPaths);
-    collectStateRecordPaths(read.data.projections, view.ownedPaths, view.linkProjectionPaths);
+    collectStateRecordPaths(
+      read.data.projections,
+      view.ownedPaths,
+      view.linkProjectionPaths,
+      undefined,
+      view.staleLinkPaths
+    );
   }
   return view;
 }
@@ -266,10 +284,7 @@ function addDiscoveryDiagnostic(
   diagnostics.warnings.push(diagnosticToWarning(diagnostic));
 }
 
-function pushOmission(
-  diagnostics: DiscoveryDiagnostics,
-  omission: DiscoveryOmission
-): void {
+function pushOmission(diagnostics: DiscoveryDiagnostics, omission: DiscoveryOmission): void {
   diagnostics.omissions.push(omission);
   addDiscoveryDiagnostic(diagnostics, {
     severity: "warning",
@@ -351,7 +366,14 @@ function collectSkillDirectories(
 
     // 顶层 symlink 一等（E6）：lstat 语义检测 + 单层 realpath；typed omission
     if (depth === 0 && entry.isSymbolicLink()) {
-      collectTopLevelSymlink(entry.name, entryPath, root, diagnostics, accumulator, includeDisabled);
+      collectTopLevelSymlink(
+        entry.name,
+        entryPath,
+        root,
+        diagnostics,
+        accumulator,
+        includeDisabled
+      );
       continue;
     }
 
@@ -369,7 +391,14 @@ function collectSkillDirectories(
     }
 
     if (recursive) {
-      collectSkillDirectories(entryPath, true, diagnostics, accumulator, includeDisabled, depth + 1);
+      collectSkillDirectories(
+        entryPath,
+        true,
+        diagnostics,
+        accumulator,
+        includeDisabled,
+        depth + 1
+      );
     }
   }
 }
@@ -453,7 +482,10 @@ function kernelAnnotation(
   entry: CollectedSkillEntry,
   kernel: DiscoveryKernelState,
   diagnostics: DiscoveryDiagnostics
-): Pick<SkillMetadata, "canonicalPath" | "entryKind" | "ownership" | "mode" | "provenance"> {
+): Pick<
+  SkillMetadata,
+  "canonicalPath" | "entryKind" | "ownership" | "mode" | "provenance" | "stale"
+> {
   const canonicalPath = canonicalIdentityOf(entry.contentDir);
   const entryPath = resolve(entry.path);
   const occupied = canonicalIdentityOf(entry.path);
@@ -464,7 +496,18 @@ function kernelAnnotation(
 
   if (entry.entryKind === "symlink") {
     const ownership: SkillOwnership = owned ? "ccski" : "external";
-    return { canonicalPath, entryKind: "symlink", ownership, mode: "link" };
+    // 批 5 STALE_PROJECTION 报告面：state 标注 stale 的 link 投影条目如实携带
+    const stale =
+      kernel.staleLinkPaths.has(entryPath) ||
+      kernel.staleLinkPaths.has(occupied) ||
+      kernel.staleLinkPaths.has(canonicalPath);
+    return {
+      canonicalPath,
+      entryKind: "symlink",
+      ownership,
+      mode: "link",
+      ...(stale ? { stale: true } : {}),
+    };
   }
 
   if (kernel.linkProjectionPaths.has(entryPath) || kernel.linkProjectionPaths.has(occupied)) {
@@ -556,9 +599,7 @@ export function scanSkillDirectory(
 
     if (candidates.length === 0) continue;
 
-    const kernelFields = entry.entryKind
-      ? kernelAnnotation(entry, kernel, diagnostics)
-      : {};
+    const kernelFields = entry.entryKind ? kernelAnnotation(entry, kernel, diagnostics) : {};
 
     for (const candidate of candidates) {
       try {
@@ -615,10 +656,9 @@ export function discoverSkills(options: DiscoveryOptions = {}): DiscoveryResult 
   const workspaceDir = resolve(options.workspaceDir ?? process.cwd());
 
   const kernel = readKernelStateView(
-    (options.stateBases ?? [
-      join(workspaceDir, ".agents"),
-      join(userDir, ".agents"),
-    ]).map((base) => resolve(base))
+    (options.stateBases ?? [join(workspaceDir, ".agents"), join(userDir, ".agents")]).map((base) =>
+      resolve(base)
+    )
   );
   for (const recovery of kernel.recovery) {
     addDiscoveryDiagnostic(diagnostics, recovery);
@@ -759,10 +799,7 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error as NodeJS.ErrnoException).code === "EPERM"
-    ) {
+    if (error instanceof Error && (error as NodeJS.ErrnoException).code === "EPERM") {
       return true;
     }
     return false;

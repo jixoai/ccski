@@ -40,9 +40,9 @@
 
 ## 批 5 · migrate 与 CLI 面【门：dry-run 不变性】
 
-- [ ] migrate --dry-run（碰撞/hash/目标实体/投影计划/影响 roots）+ 执行（expected hash 守卫 + backup/journal 回滚） — src/cli + src/api — E7
-- [ ] gc --dry-run（不自动删）+ state repair（diff+confirm+备份+幂等）+ import --claim（inode+hash 守卫） — src/cli — P1-4
-- [ ] CLI agent 检测默认全集（含 no-detection --yes 退化与 per-agent 部分成功收据，对齐批 0 fixture） — src/cli — P1-2
+- [x] migrate --dry-run（碰撞/hash/目标实体/投影计划/影响 roots）+ 执行（expected hash 守卫 + backup/journal 回滚） — src/cli + src/api — E7
+- [x] gc --dry-run（不自动删）+ state repair（diff+confirm+备份+幂等）+ import --claim（inode+hash 守卫） — src/cli — P1-4
+- [x] CLI agent 检测默认全集（含 no-detection --yes 退化与 per-agent 部分成功收据，对齐批 0 fixture） — src/cli — P1-2
 
 ## 批 6 · 发版与宿主下沉【门：全量发版门】
 

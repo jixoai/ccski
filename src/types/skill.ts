@@ -114,6 +114,12 @@ export interface SkillMetadata {
   mode?: SkillProjectionMode;
   /** legacy 标注：无 state 记录的存量物化目录 = "legacy-unknown" */
   provenance?: SkillProvenance;
+  /**
+   * store-link-kernel 批 5（STALE_PROJECTION 报告面）：link 投影记录在实体
+   * replace 换新后标 stale（R8，批 4 已钉标注/清除）；发现层读取 state 的
+   * stale 标注并在列表呈现——报告面只读，标注/清除仍只经 mutation 面。
+   */
+  stale?: boolean;
 }
 
 /**

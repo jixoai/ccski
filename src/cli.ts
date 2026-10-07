@@ -3,11 +3,15 @@
 import { homedir } from "node:os";
 import yargs, { type Argv, type CommandModule } from "yargs";
 import { hideBin } from "yargs/helpers";
+import { gcCommand, type GcArgs } from "./cli/commands/gc.js";
+import { importCommand, type ImportArgs } from "./cli/commands/import.js";
 import { infoCommand, type InfoArgs } from "./cli/commands/info.js";
 import { installCommand, type InstallArgs } from "./cli/commands/install.js";
 import { listCommand, type ListArgs } from "./cli/commands/list.js";
 import { mcpCommand, type McpArgs } from "./cli/commands/mcp.js";
+import { migrateCommand, type MigrateArgs } from "./cli/commands/migrate.js";
 import { searchCommand, type SearchArgs } from "./cli/commands/search.js";
+import { stateRepairCommand, type StateRepairArgs } from "./cli/commands/state.js";
 import { disableCommand, enableCommand, type ToggleArgs } from "./cli/commands/toggle.js";
 import { validateCommand, type ValidateArgs } from "./cli/commands/validate.js";
 import { readPackageVersion } from "./package-version.js";
@@ -179,19 +183,28 @@ const mcpModule: CommandModule<unknown, McpArgs> = {
 
 const installModule: CommandModule<unknown, InstallArgs> = {
   command: "install [source]",
-  describe: "Install ccski workflow instructions, or install skills from a source",
+  describe:
+    "Install ccski workflow instructions, or install a skill directory as entity + agent projections (kernel)",
   builder: (cmd: Argv<unknown>): Argv<InstallArgs> =>
     cmd
       .positional("source", {
         type: "string",
         description:
-          "Optional git/dir/marketplace/SKILL.md source. Omit to install ccski workflow instructions.",
+          "Optional local skill directory (contains SKILL.md). Omit to install ccski workflow instructions.",
       })
       .option("agent", {
         alias: "A",
         type: "array",
         string: true,
-        description: "Agent prompt target for workflow install (repeatable, default: all)",
+        description:
+          "Projection target agent (repeatable, or '*' for the full registry). Workflow install target when no source is given.",
+      })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description:
+          "Project to the global scope (default: project scope in the current directory)",
       })
       .option("scope", {
         choices: ["user", "project"] as const,
@@ -208,151 +221,250 @@ const installModule: CommandModule<unknown, InstallArgs> = {
         default: false,
         description: "Install workflow instructions in the current project",
       })
-      .option("out-dir", {
-        type: "array",
-        string: true,
-        description: "Destination directory (repeatable)",
-      })
-      .option("out-scope", {
-        type: "array",
-        string: true,
-        description: "Destination scope claude|claude:@project|claude:@user|codex|codex:@user",
-      })
       .option("force", {
         type: "boolean",
         default: false,
-        description: "Overwrite if skill already exists",
+        description: "Replace an existing same-name entity (explicit expectedRevision replace)",
       })
       .option("override", { type: "boolean", default: false, description: "Alias for --force" })
-      .option("path", {
-        type: "string",
-        description: "Explicit SKILL.md or marketplace.json path inside source",
-      })
-      .option("mode", {
-        choices: ["git", "file"] as const,
-        description: "Materialization mode (default: git for http/https sources, file otherwise)",
-      })
-      .option("branch", { type: "string", description: "Branch to checkout when using git mode" })
       .option("interactive", {
         alias: "i",
         type: "boolean",
         default: false,
-        description: "Interactively choose skills (requires TTY)",
-      })
-      .option("all", {
-        alias: "a",
-        type: "boolean",
-        default: false,
-        description: "Install all discovered skills",
-      })
-      .option("include", { type: "array", string: true, description: "Filter skills to install" })
-      .option("exclude", { type: "array", string: true, description: "Exclude skills from source" })
-      .option("disabled", {
-        type: "boolean",
-        default: false,
-        description: "Include only disabled skills from source",
+        description: "Interactively choose workflow targets (requires TTY)",
       })
       .option("dry-run", {
         type: "boolean",
         default: false,
-        description: "Preview what would be installed without installing",
-      })
-      .option("timeout", {
-        type: "number",
-        description: "Git clone timeout in milliseconds (default: 120000)",
+        description: "Preview the planned projection without writing",
       })
       .option("yes", {
         alias: "y",
         type: "boolean",
         default: false,
-        description: "Skip confirmation prompt in interactive mode",
+        description: "Fall back to the full agent registry when no agent is detected",
       })
       .option("json", {
         type: "boolean",
         default: false,
-        description: "Output results as JSON",
+        description: "Output typed receipts as JSON",
       }) as Argv<InstallArgs>,
   handler: installCommand,
 };
 
 const disableModule: CommandModule<unknown, ToggleArgs> = {
   command: "disable [names...]",
-  describe: "Disable skills by renaming SKILL.md to .SKILL.md",
+  describe: "Disable ccski projections (link = unlink, materialized = .SKILL.md rename)",
   builder: (cmd: Argv<unknown>): Argv<ToggleArgs> =>
     cmd
       .positional("names", { type: "string", array: true })
-      .option("include", { type: "array", string: true })
-      .option("exclude", { type: "array", string: true })
-      .option("claude-plugins-file", { type: "string" })
-      .option("claude-plugins-root", { type: "string" })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Operate on the global scope (default: project scope)",
+      })
       .option("interactive", {
         alias: "i",
         type: "boolean",
         default: false,
-        description: "Interactively choose skills to disable",
+        description: "Interactively choose entities to disable",
       })
       .option("all", {
         alias: "a",
         type: "boolean",
         default: false,
-        description: "Disable all available skills",
+        description: "Disable all recorded entities in scope",
       })
-      .option("force", {
-        alias: "f",
-        type: "boolean",
-        default: false,
-        description: "Overwrite when both SKILL.md and .SKILL.md exist",
-      })
-      .option("override", { type: "boolean", default: false, description: "Alias for --force" })
       .option("yes", {
         alias: "y",
         type: "boolean",
         default: false,
         description: "Skip confirmation prompt",
       })
-      .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
-      .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output typed receipts as JSON",
+      }) as Argv<ToggleArgs>,
   handler: disableCommand,
 };
 
 const enableModule: CommandModule<unknown, ToggleArgs> = {
   command: "enable [names...]",
-  describe: "Enable skills by restoring SKILL.md from .SKILL.md",
+  describe: "Enable ccski projections (link = rebuild after ENTITY_REVISED gate)",
   builder: (cmd: Argv<unknown>): Argv<ToggleArgs> =>
     cmd
       .positional("names", { type: "string", array: true })
-      .option("include", { type: "array", string: true })
-      .option("exclude", { type: "array", string: true })
-      .option("claude-plugins-file", { type: "string" })
-      .option("claude-plugins-root", { type: "string" })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Operate on the global scope (default: project scope)",
+      })
       .option("interactive", {
         alias: "i",
         type: "boolean",
         default: false,
-        description: "Interactively choose skills to enable",
+        description: "Interactively choose entities to enable",
       })
       .option("all", {
         alias: "a",
         type: "boolean",
         default: false,
-        description: "Enable all disabled skills",
+        description: "Enable all recorded entities in scope",
       })
-      .option("force", {
-        alias: "f",
-        type: "boolean",
-        default: false,
-        description: "Overwrite when both SKILL.md and .SKILL.md exist",
-      })
-      .option("override", { type: "boolean", default: false, description: "Alias for --force" })
       .option("yes", {
         alias: "y",
         type: "boolean",
         default: false,
         description: "Skip confirmation prompt",
       })
-      .option("json", { type: "boolean", default: false, description: "Output results as JSON" })
-      .option("scan-default-dirs", { type: "boolean", default: true }) as Argv<ToggleArgs>,
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output typed receipts as JSON",
+      }) as Argv<ToggleArgs>,
   handler: enableCommand,
+};
+
+const migrateModule: CommandModule<unknown, MigrateArgs> = {
+  command: "migrate",
+  describe:
+    "Adopt legacy materialized skill directories as ccski entities + projections (dry-run by default)",
+  builder: (cmd: Argv<unknown>): Argv<MigrateArgs> =>
+    cmd
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Migrate the global scope (default: project scope)",
+      })
+      .option("dry-run", {
+        type: "boolean",
+        default: false,
+        description: "Print the migration plan without writing (default when --execute is absent)",
+      })
+      .option("execute", {
+        type: "boolean",
+        default: false,
+        description: "Execute the migration (expected-hash guarded, backup/journal rollback)",
+      })
+      .option("root", {
+        type: "array",
+        string: true,
+        description: "Extra projection roots to scan for legacy copies (repeatable)",
+      })
+      .option("plan", {
+        type: "string",
+        description: "Path to a dry-run plan JSON; execution guards against its pinned hashes",
+      })
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output the plan/receipts as JSON",
+      }) as Argv<MigrateArgs>,
+  handler: migrateCommand,
+};
+
+const gcModule: CommandModule<unknown, GcArgs> = {
+  command: "gc",
+  describe: "Propose retiring state records whose roots vanished (dry-run only in 3.0)",
+  builder: (cmd: Argv<unknown>): Argv<GcArgs> =>
+    cmd
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Inspect the global scope (default: project scope)",
+      })
+      .option("dry-run", {
+        type: "boolean",
+        default: false,
+        description: "Required: gc is proposal-only in 3.0 and never deletes",
+      })
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output proposals as JSON",
+      }) as Argv<GcArgs>,
+  handler: gcCommand,
+};
+
+const stateModule: CommandModule<unknown, StateRepairArgs> = {
+  command: "state <action>",
+  describe: "ccski state maintenance",
+  builder: (cmd: Argv<unknown>): Argv<StateRepairArgs> =>
+    cmd
+      .positional("action", {
+        choices: ["repair"] as const,
+        demandOption: true,
+        description: "repair: scan vs sidecar diff + --confirm + pre-repair backup",
+      })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Repair the global scope (default: project scope)",
+      })
+      .option("confirm", {
+        type: "boolean",
+        default: false,
+        description: "Apply the repair (absent: diff only + typed REPAIR_CONFIRM_REQUIRED)",
+      })
+      .option("root", {
+        type: "array",
+        string: true,
+        description: "Extra roots to include in the scan (repeatable)",
+      })
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output the diff/receipt as JSON",
+      }) as Argv<StateRepairArgs>,
+  handler: stateRepairCommand,
+};
+
+const importModule: CommandModule<unknown, ImportArgs> = {
+  command: "import <path>",
+  describe: "Adopt an unregistered symlink as a ccski link projection (--claim)",
+  builder: (cmd: Argv<unknown>): Argv<ImportArgs> =>
+    cmd
+      .positional("path", {
+        type: "string",
+        demandOption: true,
+        description: "Symlink path to adopt",
+      })
+      .option("claim", {
+        type: "boolean",
+        default: false,
+        description: "Adopt the link as a ccski projection (state-only change)",
+      })
+      .option("inode", {
+        type: "number",
+        description: "Expected target directory inode (identity guard; observe via --observe)",
+      })
+      .option("hash", {
+        type: "string",
+        description: "Expected target content hash, 64 hex (identity guard; observe via --observe)",
+      })
+      .option("observe", {
+        type: "boolean",
+        default: false,
+        description: "Print the target's inode/hash without changing state",
+      })
+      .option("global", {
+        alias: "g",
+        type: "boolean",
+        default: false,
+        description: "Claim against the global scope (default: project scope)",
+      })
+      .option("json", {
+        type: "boolean",
+        default: false,
+        description: "Output typed receipts as JSON",
+      }) as Argv<ImportArgs>,
+  handler: importCommand,
 };
 
 await yargs(hideBin(process.argv))
@@ -387,6 +499,10 @@ await yargs(hideBin(process.argv))
   .command(installModule)
   .command(disableModule)
   .command(enableModule)
+  .command(migrateModule)
+  .command(gcModule)
+  .command(stateModule)
+  .command(importModule)
   .demandCommand(1, "Please provide a command")
   .strict()
   .help()

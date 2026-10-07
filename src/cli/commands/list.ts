@@ -62,6 +62,11 @@ export async function listCommand(argv: ArgumentsCamelCase<ListArgs>): Promise<v
           badges.push(duplicateBadge(dupInfo.groupIndex, dupInfo.isPrimary));
         }
 
+        // 批 5 STALE_PROJECTION 报告面：实体 replace 换新后 link 投影的 stale 标注
+        if (skill.stale) {
+          badges.push(tone.warning("[stale STALE_PROJECTION]"));
+        }
+
         const base = {
           title: coloredId,
           color: (text: string) => text,

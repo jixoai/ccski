@@ -1,3 +1,16 @@
+/**
+ * 文件意图（2026-10-07）
+ * 用户原始需求 [2026-10-07]：「3.0 移除 2.x mutation 入口（installSkills/removeSkills
+ * (旧)/toggleSkills）——不造兼容胶层（§8）；保留面：listSkills/getSkillInfo/
+ * validateSkill/searchSkills」（批 5 2.x 入口迁移裁决）
+ * 正交意图：
+ *   [1] 保留面的选项/结果类型（list/info/search/validate + 过滤器）
+ *   [2] workflow 安装类型（3.0 边界外，随 workflow-install.ts 保留）
+ *   [3] 内核 mutation 的类型已迁至各自模块（entity 家族 / migrate / gc / repair /
+ *       claim）——本文件不再承载 mutation 载荷（2.x Install/Remove/Toggle 类型族随
+ *       入口退役）
+ * 妥协声明：无（无兼容策略 §8：不保留 alias、不保留胶水类型）。
+ */
 import type { SkillMetadata } from "../types/skill.js";
 import type { RegistryInput } from "../utils/registry-options.js";
 
@@ -23,35 +36,6 @@ export interface SearchOptions extends RegistryInput, FilterOptions {
 
 export interface ValidateOptions extends RegistryInput, FilterOptions {
   path: string;
-}
-
-export interface ToggleOptions extends RegistryInput, FilterOptions {
-  names?: string[];
-  force?: boolean;
-  override?: boolean;
-  interactive?: boolean;
-  yes?: boolean;
-}
-
-export interface InstallOptions {
-  source?: string;
-  skills?: string[];
-  force?: boolean;
-  override?: boolean;
-  path?: string;
-  mode?: "git" | "file";
-  branch?: string;
-  interactive?: boolean;
-  all?: boolean;
-  disabled?: boolean;
-  include?: string[];
-  exclude?: string[];
-  outDir?: string[];
-  outScope?: string[];
-  userDir?: string;
-  dryRun?: boolean;
-  timeout?: number;
-  yes?: boolean;
 }
 
 export type AgentInstructionScope = "user" | "project";
@@ -120,104 +104,4 @@ export interface ValidateResult {
   success: boolean;
   errors: string[];
   warnings: string[];
-}
-
-export interface InstallResultEntry {
-  skill: string;
-  destination: string;
-  path: string;
-  status: "installed" | "skipped" | "overwritten" | "failed";
-  error?: string;
-}
-
-export interface InstallSummary {
-  results: InstallResultEntry[];
-  installed: number;
-  skipped: number;
-  overwritten: number;
-  failed: number;
-}
-
-export interface InstallPreview {
-  dryRun: true;
-  skills: Array<{ name: string; description: string }>;
-  destinations: Array<{ path: string; exists: boolean }>;
-  totalInstalls: number;
-}
-
-export type InstallResult = InstallSummary | InstallPreview;
-
-export interface ToggleResultEntry {
-  skill: string;
-  path: string;
-  status: "enabled" | "disabled" | "skipped" | "failed";
-  error?: string;
-}
-
-export interface ToggleSummary {
-  mode: "enable" | "disable";
-  results: ToggleResultEntry[];
-  succeeded: number;
-  skipped: number;
-  failed: number;
-}
-
-/** Why a removal item was skipped (finite vocabulary; clients never parse strings). */
-export type RemoveSkipReason = "NOT_FOUND";
-
-/** Why a removal item failed (finite vocabulary; clients never parse strings). */
-export type RemoveFailureCode =
-  | "INVALID_NAME"
-  | "PATH_ESCAPE"
-  | "NOT_DIRECTORY"
-  | "NOT_A_SKILL"
-  | "SYMLINK_TARGET"
-  | "GUARD_INVALID"
-  | "GUARD_MISMATCH"
-  | "GUARD_UNREADABLE"
-  | "DELETE_FAILED";
-
-/** Guarded removal request: a name plus optional check-then-delete swap guards. */
-export interface RemoveSkillRequest {
-  name: string;
-  /** Expected sha256 hex of the active identity file (SKILL.md, else .SKILL.md). */
-  expectedContentHash?: string;
-  /** Expected inode of the skill directory from a prior lstat. */
-  expectedInode?: number;
-}
-
-export interface RemoveResultEntry {
-  skill: string;
-  path: string;
-  status: "removed" | "skipped" | "failed";
-  reason?: RemoveSkipReason;
-  errorCode?: RemoveFailureCode;
-  error?: string;
-}
-
-export interface RemoveSummary {
-  results: RemoveResultEntry[];
-  removed: number;
-  skipped: number;
-  failed: number;
-}
-
-export interface RemovePreview {
-  dryRun: true;
-  skills: Array<{ name: string; path: string; exists: boolean }>;
-  totalRemovals: number;
-}
-
-export type RemoveResult = RemoveSummary | RemovePreview;
-
-export interface RemoveOptions {
-  /** Already-resolved target root (host-guarded); must be a real directory. */
-  targetRoot: string;
-  /** Explicit names or guarded requests. Required unless `all` or `interactive`. */
-  requests?: Array<string | RemoveSkillRequest>;
-  /** Remove every discovered direct-child skill directory. */
-  all?: boolean;
-  interactive?: boolean;
-  yes?: boolean;
-  dryRun?: boolean;
 }

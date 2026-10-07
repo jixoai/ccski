@@ -1,106 +1,110 @@
-export { getSkillInfo } from "./info.js";
+/**
+ * API 导出面（store-link-kernel 批 5 收口）：
+ * - 保留面（对齐面，随发现层增量字段自然增强）：listSkills / getSkillInfo /
+ *   validateSkill / searchSkills
+ * - 内核面（批 3/4）：ensureEntity / projectEntity / removeEntityProjections /
+ *   deleteEntity / toggleEntityProjection / updateEntity
+ * - 批 5 命令面：migrateLegacyEntries / gcPropose / repairState / claimLink
+ * - 2.x mutation 入口（installSkills / installSkillDir / removeSkills / toggleSkills）
+ *   按 3.0 裁决移除，不造兼容胶层（§8）；其语义由内核面 + CLI 命令承载
+ */
 export {
-  type EnsureEntityExisting,
-  type EnsureEntityFailureCode,
-  type EnsureEntityOptions,
-  type EnsureEntityResult,
-  ensureEntity,
-  type EntitySnapshot,
-  type EntitySourceInput,
-  type EntitySwapOutcome,
-  stageEntityCopy,
-  swapEntityIntoPlace,
-  type ProjectEntityCommon,
-  type ProjectEntityOptions,
-  type ProjectEntityResult,
-  type ProjectEntityTopErrorCode,
-  projectEntity,
-  type ProjectRootFailureCode,
-  type ProjectRootResult,
-  type ProjectRootStatus,
-} from "./entity.js";
+  claimLink,
+  observeClaimTarget,
+  type ClaimConflictReason,
+  type ClaimFailureCode,
+  type ClaimResult,
+} from "./claim.js";
 export {
+  deleteEntity,
+  removeEntityProjections,
   type DeleteEntityFailureCode,
   type DeleteEntityOptions,
   type DeleteEntityResult,
-  deleteEntity,
   type EntityRemoveFailureCode,
   type EntityRemoveGcReport,
   type EntityRemoveOptions,
   type EntityRemoveResult,
   type EntityRemoveRootCode,
   type EntityRemoveRootResult,
-  removeEntityProjections,
 } from "./entity-remove.js";
 export {
+  toggleEntityProjection,
   type EntityToggleAction,
   type EntityToggleFailureCode,
   type EntityToggleOptions,
   type EntityToggleResult,
   type EntityToggleStatus,
-  toggleEntityProjection,
 } from "./entity-toggle.js";
 export {
+  updateEntity,
   type EntityUpdateFailureCode,
   type EntityUpdateItemCode,
   type EntityUpdateItemStatus,
   type EntityUpdateOptions,
   type EntityUpdateProjectionResult,
   type EntityUpdateResult,
-  updateEntity,
 } from "./entity-update.js";
 export {
-  InstallAuditError,
-  InstallCancelledError,
-  MultiSkillSelectionError,
-  createConsoleInstallOutput,
-  installSkillDir,
-  installSkills,
-  registerInstallCleanupHandlers,
-  type InstallAuditCode,
-  type InstallOutput,
-} from "./install.js";
+  ensureEntity,
+  projectEntity,
+  stageEntityCopy,
+  swapEntityIntoPlace,
+  type EnsureEntityExisting,
+  type EnsureEntityFailureCode,
+  type EnsureEntityOptions,
+  type EnsureEntityResult,
+  type EntitySnapshot,
+  type EntitySourceInput,
+  type EntitySwapOutcome,
+  type ProjectEntityCommon,
+  type ProjectEntityOptions,
+  type ProjectEntityResult,
+  type ProjectEntityTopErrorCode,
+  type ProjectRootFailureCode,
+  type ProjectRootResult,
+  type ProjectRootStatus,
+} from "./entity.js";
+export {
+  gcPropose,
+  type GcFailureCode,
+  type GcProposal,
+  type GcResult,
+  type GcUnknownReference,
+} from "./gc.js";
+export { getSkillInfo } from "./info.js";
 export { listSkills } from "./list.js";
 export { startMCPServer } from "./mcp.js";
 export type { MCPServerOptions } from "./mcp.js";
 export {
-  RemoveCancelledError,
-  RemoveSelectionError,
-  RemoveTargetRootError,
-  removeSkills,
-  type RemoveTargetRootCode,
-} from "./remove.js";
-export { searchSkills, searchSkillsDetailed } from "./search.js";
+  migrateLegacyEntries,
+  type MigrateAdopted,
+  type MigrateCandidatePlan,
+  type MigrateConflict,
+  type MigrateConflictCode,
+  type MigrateConverted,
+  type MigrateFailureCode,
+  type MigratePlan,
+  type MigrateResult,
+} from "./migrate.js";
 export {
-  ToggleCancelledError,
-  MultiSelectError as ToggleMultiSelectError,
-  toggleSkills,
-  type ToggleMode,
-} from "./toggle.js";
+  repairState,
+  type RepairAction,
+  type RepairDiffCode,
+  type RepairDiffItem,
+  type RepairFailureCode,
+  type RepairResult,
+} from "./repair.js";
+export { searchSkills, searchSkillsDetailed } from "./search.js";
 export type {
   AgentInstructionScope,
   AgentInstructionTarget,
+  FilterOptions,
   InfoOptions,
-  InstallOptions,
-  InstallPreview,
-  InstallResult,
-  InstallResultEntry,
-  InstallSummary,
   ListOptions,
-  RemoveFailureCode,
-  RemoveOptions,
-  RemovePreview,
-  RemoveResult,
-  RemoveResultEntry,
-  RemoveSkillRequest,
-  RemoveSkipReason,
-  RemoveSummary,
   SearchOptions,
   SearchResultItem,
   SkillInfoResult,
-  ToggleOptions,
-  ToggleResultEntry,
-  ToggleSummary,
   ValidateOptions,
   ValidateResult,
   WorkflowInstallOptions,
