@@ -55,9 +55,11 @@ export type SkillOwnership = "ccski" | "external" | "unknown";
 
 /**
  * store-link-kernel 批 2：发现层观察到的投影形态（只观察，不制造）。
- * symlink 条目 = link；目录条目 = materialized（含 legacy）。
+ * symlink 条目 = link；目录条目 = materialized（含 legacy）；
+ * "entity-local" = 目录条目命中 state ENTITY 记录（2026-10-07 G3 裁决第四形态：
+ * 实体本体 ≠ 物化投影副本，实体记录是唯一权威）。
  */
-export type SkillProjectionMode = "link" | "materialized";
+export type SkillProjectionMode = "link" | "materialized" | "entity-local";
 
 /**
  * store-link-kernel 批 2（E7）：legacy 标注。无 state 记录的存量物化目录 =

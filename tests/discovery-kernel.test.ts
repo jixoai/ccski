@@ -151,11 +151,12 @@ describe("G2 discovery kernel matrix (store-link-kernel 批 2)", () => {
     expect(link?.canonicalPath).toBe(real(entityDir));
     expect(link?.disabled).toBe(false);
 
-    // 实体本体在其根下也可见：materialized + ccski（state 命中），无 legacy 标注
+    // 实体本体在其根下也可见：entity-local + ccski（entities 表命中），无 legacy 标注
+    // （批 3 G3 裁决附带修正：实体本体 ≠ 物化投影副本，实体记录是唯一权威）
     const entity = result.skills.find((s) => s.path === entityDir);
     expect(entity?.entryKind).toBe("directory");
     expect(entity?.ownership).toBe("ccski");
-    expect(entity?.mode).toBe("materialized");
+    expect(entity?.mode).toBe("entity-local");
     expect(entity?.provenance).toBeUndefined();
     expect(readFileSync(statePath, "utf8")).toContain('"generation": 1');
     rmSync(sandbox.home, { recursive: true, force: true });
@@ -396,17 +397,20 @@ describe("G2 discovery kernel matrix (store-link-kernel 批 2)", () => {
 
   it("M14: directory occupying a recorded link-projection path is observed as occupied", () => {
     const sandbox = makeSandbox("m14");
+    // 实体在自身实体根（entity-local 形态）；投影路径被第三方实目录占据
+    // （批 3 G3 裁决后 entity 记录与 projection 路径分离，占用观察才语义纯净）
+    const entityDir = writeSkill(join(sandbox.home, ".agents", "skills", "theta"), "theta");
     const occupiedDir = writeSkill(join(sandbox.home, ".claude", "skills", "theta"), "theta");
     seedState(
       join(sandbox.home, ".agents"),
-      { ent_14: { path: real(occupiedDir), name: "theta" } },
+      { ent_14: { path: real(entityDir), name: "theta" } },
       { prj_14: { path: occupiedDir, mode: "link", entityId: "ent_14", disabled: false } }
     );
 
     const result = discover(sandbox);
     const occupied = result.skills.find((s) => s.path === occupiedDir);
     expect(occupied).toBeDefined();
-    // 磁盘形态是实目录：mode=materialized；state 命中 → ccski
+    // 磁盘形态是实目录：mode=materialized；projection 记录命中 → ccski（非实体记录）
     expect(occupied?.entryKind).toBe("directory");
     expect(occupied?.ownership).toBe("ccski");
     expect(occupied?.mode).toBe("materialized");

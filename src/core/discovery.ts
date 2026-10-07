@@ -12,7 +12,8 @@
  *       symlink（现状保持）
  *   [3] store-link-kernel 批 2（E6/E7）：ownership 判定的 state 只读同步读取面；
  *       无 state 记录的存量实目录 = materialized + legacy-unknown（只标注不转换，
- *       转换只经批 5 migrate）
+ *       转换只经批 5 migrate）；批 3 G3 裁决增量：entities 表命中 = entity-local
+ *       （实体本体与物化投影在发现面显式区分）
  *   [4] 保留名精确 glob 发现层跳过 + 残留清扫（marker + pid 活性/龄期条件，
  *       禁前缀盲删；无 marker 的同名用户目录不删）
  * 妥协声明：清扫以显式导出函数 sweepReservedResidues 交付，发现扫描保持只读
@@ -161,6 +162,8 @@ export interface DiscoveryKernelState {
   /** 读过的 scopeBase（resolve 归一） */
   bases: string[];
   ownedPaths: Set<string>;
+  /** entities 表记录的实体路径（resolve + realpath 双形态；entity-local 区分依据） */
+  entityPaths: Set<string>;
   linkProjectionPaths: Set<string>;
   /** state 只读降级诊断（每损坏 base 一条；发现层不硬失败） */
   recovery: CcskiDiagnostic[];
@@ -190,13 +193,15 @@ function addOwnedPath(set: Set<string>, rawPath: string): void {
 function collectStateRecordPaths(
   table: Record<string, unknown>,
   owned: Set<string>,
-  links?: Set<string>
+  links?: Set<string>,
+  entityPaths?: Set<string>
 ): void {
   for (const value of Object.values(table)) {
     if (!isRecordValue(value)) continue;
     if (typeof value.path !== "string" || value.path.length === 0) continue;
     addOwnedPath(owned, value.path);
     if (links && value.mode === "link") addOwnedPath(links, value.path);
+    if (entityPaths) addOwnedPath(entityPaths, value.path);
   }
 }
 
@@ -214,6 +219,7 @@ export function readKernelStateView(stateBases: string[]): DiscoveryKernelState 
   const view: DiscoveryKernelState = {
     bases: stateBases.map((base) => resolve(base)),
     ownedPaths: new Set(),
+    entityPaths: new Set(),
     linkProjectionPaths: new Set(),
     recovery: [],
   };
@@ -231,7 +237,7 @@ export function readKernelStateView(stateBases: string[]): DiscoveryKernelState 
       });
       continue;
     }
-    collectStateRecordPaths(read.data.entities, view.ownedPaths);
+    collectStateRecordPaths(read.data.entities, view.ownedPaths, undefined, view.entityPaths);
     collectStateRecordPaths(read.data.projections, view.ownedPaths, view.linkProjectionPaths);
   }
   return view;
@@ -436,11 +442,12 @@ function canonicalIdentityOf(path: string): string {
 }
 
 /**
- * 批 2（E6/E7）：顶层条目的内核标注。归属判定（state 只读视图）：
+ * 批 2（E6/E7）+ 批 3 G3 裁决：顶层条目的内核标注。归属判定（state 只读视图）：
  * - symlink：canonicalPath 或链接路径命中 state 记录 → ccski；否则 external。
- * - directory：路径命中 state 记录 → ccski；未记录 → unknown + legacy-unknown
- *   （只标注不转换）。state 记录 mode:"link" 的路径被实体目录占据 → 投影路径
- *   被占用观察诊断（guard 处理在批 4）。
+ * - directory：命中 entities 表记录 → ccski + entity-local（实体本体≠投影副本）；
+ *   仅命中 projections 记录 → ccski + materialized；未记录 → unknown +
+ *   legacy-unknown（只标注不转换）。state 记录 mode:"link" 的路径被实体目录
+ *   占据 → 投影路径被占用观察诊断（guard 处理在批 4）。
  */
 function kernelAnnotation(
   entry: CollectedSkillEntry,
@@ -471,6 +478,20 @@ function kernelAnnotation(
   }
 
   if (owned) {
+    // entity-local 第四形态（2026-10-07 G3 裁决）：目录条目命中 entities 表记录 =
+    // 实体本体，不是物化投影副本——实体记录是唯一权威，禁与 materialized 混淆。
+    if (
+      kernel.entityPaths.has(canonicalPath) ||
+      kernel.entityPaths.has(entryPath) ||
+      kernel.entityPaths.has(occupied)
+    ) {
+      return {
+        canonicalPath,
+        entryKind: "directory",
+        ownership: "ccski",
+        mode: "entity-local",
+      };
+    }
     return { canonicalPath, entryKind: "directory", ownership: "ccski", mode: "materialized" };
   }
   const provenance: SkillProvenance = "legacy-unknown";

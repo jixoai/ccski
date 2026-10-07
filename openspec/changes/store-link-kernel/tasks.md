@@ -27,9 +27,9 @@
 
 ## 批 3 · ensureEntity / projectEntity【门：API 契约测试】
 
-- [ ] ensureEntity（scope-aware + NAME_COLLISION + NAME_EXISTS/显式 replace 状态机含回滚） — src/api — E1/P1-3
-- [ ] projectEntity（显式 roots；link 默认；materialized 显式 reason；自动降级仅 symlink-unavailable 一类；TARGET_DENIED 不降级；strict link-only；结果如实 mode+reason） — src/api — E5/P1-5
-- [ ] 2.x install 入口迁移裁决：targetRoot 物化 → materialized 显式（不造未批准兼容胶层） — src/api/install — E7
+- [x] ensureEntity（scope-aware + NAME_COLLISION + NAME_EXISTS/显式 replace 状态机含回滚） — src/api — E1/P1-3
+- [x] projectEntity（显式 roots；link 默认；materialized 显式 reason；自动降级仅 symlink-unavailable 一类；TARGET_DENIED 不降级；strict link-only；结果如实 mode+reason） — src/api — E5/P1-5
+- [x] 2.x install 入口迁移裁决：targetRoot 物化 → materialized 显式（不造未批准兼容胶层） — src/api/install — E7
 
 ## 批 4 · remove / update / toggle 内核化【门：组合矩阵 + update 收据】
 

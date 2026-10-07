@@ -1,5 +1,25 @@
 export { getSkillInfo } from "./info.js";
 export {
+  type EnsureEntityExisting,
+  type EnsureEntityFailureCode,
+  type EnsureEntityOptions,
+  type EnsureEntityResult,
+  ensureEntity,
+  type EntitySnapshot,
+  type EntitySourceInput,
+  type EntitySwapOutcome,
+  stageEntityCopy,
+  swapEntityIntoPlace,
+  type ProjectEntityCommon,
+  type ProjectEntityOptions,
+  type ProjectEntityResult,
+  type ProjectEntityTopErrorCode,
+  projectEntity,
+  type ProjectRootFailureCode,
+  type ProjectRootResult,
+  type ProjectRootStatus,
+} from "./entity.js";
+export {
   InstallAuditError,
   InstallCancelledError,
   MultiSkillSelectionError,
