@@ -46,6 +46,6 @@
 
 ## 批 6 · 发版与宿主下沉【门：全量发版门】
 
-- [ ] 发版门（全过才 3.0.0）：`openspec validate --strict` + `pnpm ts` + `pnpm test` 全量 + `pnpm build` + parity 矩阵 + migrate/recovery 收据 + Windows 可跑环境收据（无环境则 release notes 显式声明未验证面，不视为通过） — 仓内 — P1-7
-- [ ] 【跨仓·skill-creator-v2 另立 host change】repository install 换 entity/projection API（保留 installedSkillId 复核链）+ ccski-symlink-entries 三步退役 + folder-hash 单源消费 + skills-update lockSyncPending 诚实化 + canonical 层区分逻辑名/目录名/实体/投影 — host 仓 — 评审硬门 5
-- [ ] host 全链路无漂移复跑（provider/sourcePriority/canonical path/mutation target 对照表）后才删 wrapper — host 仓 — G6 门
+- [x] 发版门（全过才 3.0.0）：`openspec validate --strict` + `pnpm ts` + `pnpm test` 全量 + `pnpm build` + parity 矩阵 + migrate/recovery 收据 + Windows 可跑环境收据（无环境则 release notes 显式声明未验证面，不视为通过） — 仓内 — P1-7 【2026-10-07 收据：strict valid；ts 0 错；test 301/301×2 连续全绿（另一次全量跑出现 1 例 state-store 双进程 CAS 时序抖动，隔离复跑 3/3 绿，见批 6 报告）；build 过；npm pack dry-run ccski@3.0.0（exports 面零 2.x 退役残留，cli.mjs 仅存一处意图注释提及）；parity 69/69（cli-projection-defaults 11 + folder-hash 10 + lock-reader 6 + entity-kernel 42）；Windows 无可跑环境 → 走声明分支：CHANGELOG 3.0.0 平台声明 + README/README-zh 平台支持节】
+- [ ] 【跨仓·skill-creator-v2 另立 host change】repository install 换 entity/projection API（保留 installedSkillId 复核链）+ ccski-symlink-entries 三步退役 + folder-hash 单源消费 + skills-update lockSyncPending 诚实化 + canonical 层区分逻辑名/目录名/实体/投影 — host 仓 — 评审硬门 5 【批 6 不勾：跨仓另立，本批不涉及】
+- [ ] host 全链路无漂移复跑（provider/sourcePriority/canonical path/mutation target 对照表）后才删 wrapper — host 仓 — G6 门 【跨仓另立；host 两项完成后 3.0.0 方可实际 publish（发版时序 = Owner 决策）】

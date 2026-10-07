@@ -1,30 +1,40 @@
 # API Documentation
 
-The package exports a programmatic API that mirrors CLI functionality. Each function returns the same structure as the CLI `--json` output.
+The package exports a programmatic API. Alignment faces (`listSkills`,
+`getSkillInfo`, `searchSkills`, `validateSkill`) mirror the CLI `--json`
+output; the kernel faces return typed results with finite failure codes
+instead of throwing for domain failures.
 
 ## Import
 
 ```ts
+// kernel (3.0): entities + projections
 import {
-  listSkills,
-  getSkillInfo,
-  searchSkills,
-  validateSkill,
-  installSkills,
-  installCcskiWorkflow,
-  toggleSkills,
-  startMCPServer,
+  ensureEntity,
+  projectEntity,
+  removeEntityProjections,
+  deleteEntity,
+  toggleEntityProjection,
+  updateEntity,
 } from "ccski";
+
+// command face (3.0): migrate / gc / repair / claim
+import { migrateLegacyEntries, gcPropose, repairState, claimLink } from "ccski";
+
+// alignment face (retained)
+import { listSkills, getSkillInfo, searchSkills, validateSkill } from "ccski";
+
+// workflow + server (retained)
+import { installCcskiWorkflow, startMCPServer } from "ccski";
 ```
 
-## Error and warning behavior
-
-- If the CLI would error/exit, the API throws.
-- If the CLI would only warn, the API returns warnings in the result payload.
+Removed in 3.0: `installSkills`, `installSkillDir`, `removeSkills`,
+`toggleSkills` and their option/result types — no aliases, no shims.
 
 ## Sections
 
 - [Skill APIs](/api/skills)
+- [Kernel APIs](/api/kernel)
 - [Install APIs](/api/install)
 - [Toggle APIs](/api/toggle)
 - [MCP APIs](/api/mcp)
@@ -66,27 +76,28 @@ const result = await validateSkill({
 });
 ```
 
-## Install
+## Kernel install (two-phase)
 
 ```ts
-const result = await installSkills({
-  source: "https://github.com/wshobson/agents",
-  outDir: ["./.claude/skills"],
-  all: true,
+import { ensureEntity, projectEntity } from "ccski";
+
+const ensured = await ensureEntity({
+  scope: "project",
+  source: { dir: "/abs/path/to/my-skill" },
+});
+if (ensured.kind === "error") throw new Error(`${ensured.code}: ${ensured.message}`);
+
+const projected = await projectEntity({
+  scope: "project",
+  name: ensured.entity.logicalName,
+  roots: ["/abs/workspace/.claude/skills"],
 });
 ```
 
-Dry-run preview:
+See [Kernel APIs](/api/kernel) for the full contract (typed failures, downgrade
+rules, entity-local receipts, guards).
 
-```ts
-const preview = await installSkills({
-  source: "./local-skill",
-  outDir: ["./.claude/skills"],
-  dryRun: true,
-});
-```
-
-Workflow install:
+## Workflow install
 
 ```ts
 const workflow = installCcskiWorkflow({
@@ -98,8 +109,14 @@ const workflow = installCcskiWorkflow({
 ## Toggle
 
 ```ts
-await toggleSkills("disable", { names: ["pdf"] });
-await toggleSkills("enable", { names: ["pdf"] });
+import { toggleEntityProjection } from "ccski";
+
+await toggleEntityProjection({
+  scope: "project",
+  name: "pdf",
+  root: "/abs/workspace/.claude/skills",
+  action: "disable",
+});
 ```
 
 ## MCP
@@ -113,4 +130,5 @@ await startMCPServer({
 
 ## Types
 
-All result types and option interfaces are exported from the package. See `src/api/types.ts` for the full list.
+All result types and option interfaces are exported from the package. See
+[Types](/api/types) for the common ones.

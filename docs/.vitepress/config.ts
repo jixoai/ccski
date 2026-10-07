@@ -20,6 +20,10 @@ export default defineConfig({
             { text: "Search", link: "/cli/search" },
             { text: "Install", link: "/cli/install" },
             { text: "Enable/Disable", link: "/cli/toggle" },
+            { text: "Migrate", link: "/cli/migrate" },
+            { text: "GC", link: "/cli/gc" },
+            { text: "State", link: "/cli/state" },
+            { text: "Import", link: "/cli/import" },
             { text: "Validate", link: "/cli/validate" },
             { text: "MCP Server", link: "/cli/mcp" },
           ],
@@ -31,6 +35,7 @@ export default defineConfig({
           items: [
             { text: "Overview", link: "/api/" },
             { text: "Skill APIs", link: "/api/skills" },
+            { text: "Kernel APIs", link: "/api/kernel" },
             { text: "Install APIs", link: "/api/install" },
             { text: "Toggle APIs", link: "/api/toggle" },
             { text: "MCP APIs", link: "/api/mcp" },

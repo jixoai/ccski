@@ -3,9 +3,21 @@
 The package exports all API option/result types. Common ones:
 
 - `ListOptions`, `InfoOptions`, `SearchOptions`, `ValidateOptions`
-- `InstallOptions`, `InstallResult`, `InstallSummary`, `InstallPreview`
+- `SkillInfoResult`, `SearchResultItem`, `ValidateResult`, `FilterOptions`
 - `WorkflowInstallOptions`, `WorkflowInstallResult`, `WorkflowInstallResultEntry`
-- `ToggleOptions`, `ToggleSummary`
-- `SkillInfoResult`, `SearchResultItem`, `ValidateResult`
+- Kernel (3.0): `EnsureEntityOptions`, `EnsureEntityResult`, `EntitySnapshot`,
+  `ProjectEntityOptions`, `ProjectEntityResult`, `ProjectRootResult`,
+  `EntityRemoveOptions`, `EntityRemoveResult`, `DeleteEntityOptions`,
+  `DeleteEntityResult`, `EntityToggleOptions`, `EntityToggleResult`,
+  `EntityUpdateOptions`, `EntityUpdateResult`
+- Command face (3.0): `MigratePlan`, `MigrateResult`, `GcResult`, `GcProposal`,
+  `RepairResult`, `RepairDiffItem`, `ClaimResult`
+- Discovery: `DiscoveryOptions`, `DiscoveryResult`, `DiscoveryOmission`,
+  `SkillMetadata` (with `canonicalPath` / `entryKind` / `ownership` / `mode` /
+  `provenance` / `stale`), `Skill`, `SkillRegistryOptions`
 
-See `src/api/types.ts` for full definitions.
+Removed in 3.0: the 2.x mutation types (`InstallOptions`, `InstallResult`,
+`InstallSummary`, `InstallPreview`, `ToggleOptions`, `ToggleSummary`, ...). No
+aliases are provided.
+
+See the exported `.d.ts` for full definitions.
