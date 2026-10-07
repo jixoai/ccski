@@ -20,6 +20,36 @@ export {
   type ProjectRootStatus,
 } from "./entity.js";
 export {
+  type DeleteEntityFailureCode,
+  type DeleteEntityOptions,
+  type DeleteEntityResult,
+  deleteEntity,
+  type EntityRemoveFailureCode,
+  type EntityRemoveGcReport,
+  type EntityRemoveOptions,
+  type EntityRemoveResult,
+  type EntityRemoveRootCode,
+  type EntityRemoveRootResult,
+  removeEntityProjections,
+} from "./entity-remove.js";
+export {
+  type EntityToggleAction,
+  type EntityToggleFailureCode,
+  type EntityToggleOptions,
+  type EntityToggleResult,
+  type EntityToggleStatus,
+  toggleEntityProjection,
+} from "./entity-toggle.js";
+export {
+  type EntityUpdateFailureCode,
+  type EntityUpdateItemCode,
+  type EntityUpdateItemStatus,
+  type EntityUpdateOptions,
+  type EntityUpdateProjectionResult,
+  type EntityUpdateResult,
+  updateEntity,
+} from "./entity-update.js";
+export {
   InstallAuditError,
   InstallCancelledError,
   MultiSkillSelectionError,

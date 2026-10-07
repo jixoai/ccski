@@ -33,10 +33,10 @@
 
 ## 批 4 · remove / update / toggle 内核化【门：组合矩阵 + update 收据】
 
-- [ ] remove 投影先行 + 实体 GC（全 roots 复核 + 未知引用保留 warning） — src/api/remove — E4
-- [ ] update 实体稳路径换新 + 物化逐副本重物化（自身 hash guard）+ PINNED skip 收据 + replace 崩溃窗口恢复测试 — src/api/update — E4/P1-3
-- [ ] toggle link 摘链/重建（ENTITY_REVISED）+ 物化 ccski-legacy 标注 + link 禁第二身份文件 — src/api/toggle — E3
-- [ ] 组合矩阵收据：discovery/remove/toggle 全组合 + disabled-after-update + crash 恢复 — tests — G4 门
+- [x] remove 投影先行 + 实体 GC（全 roots 复核 + 未知引用保留 warning） — src/api/remove — E4
+- [x] update 实体稳路径换新 + 物化逐副本重物化（自身 hash guard）+ PINNED skip 收据 + replace 崩溃窗口恢复测试 — src/api/update — E4/P1-3
+- [x] toggle link 摘链/重建（ENTITY_REVISED）+ 物化 ccski-legacy 标注 + link 禁第二身份文件 — src/api/toggle — E3
+- [x] 组合矩阵收据：discovery/remove/toggle 全组合 + disabled-after-update + crash 恢复 — tests — G4 门
 
 ## 批 5 · migrate 与 CLI 面【门：dry-run 不变性】
 

@@ -21,11 +21,15 @@
  *       不写 lockSyncPending:true）
  *   [2] projectEntity（E5/P1-5）：显式 roots 投影 + 降级分类（EPERM/ENOSYS/EXDEV →
  *       symlink-unavailable 可降级；EACCES/EROFS → TARGET_DENIED 不降级）+ strict
- *       link-only + 投影路径占用 typed 拒绝（不清障）+ state projections 记账
+ *       link-only + 投影路径占用 typed 拒绝（不清障）+ 物化记录落 copy guard 基准
+ *       （批 4：copyHash/copyIno）与 pin 记录（reason:"pinned" → ref+folderHash，
+ *       update 据此产 PINNED skip 收据）
  *   [3] entity-local 第四形态（G3 裁决冻结）：canonical root 收据、零副作用、幂等
  *   [4] CAS 提交原语 commitTransform：读→纯变换→commit 三轮重试（conflict 重读重
- *       建，禁盲覆盖）；磁盘先行的补偿语义（create 提交失败回滚删除；replace 提交
- *       失败诚实上报磁盘已换新）
+ *       建，禁盲覆盖；批 4 增显式键删除，raw 不兼容条目仍原样保留）；磁盘先行的
+ *       补偿语义（create 提交失败回滚删除；replace 提交失败诚实上报磁盘已换新）。
+ *       本原语与 stageEntityCopy/swapEntityIntoPlace/materializeCopy 为批 4
+ *       update/remove/toggle 内核家族的共用原语（导出面限 entity 家族内部）。
  * 妥协声明：replace 的 swap 中断失败注入不经生产代码测试钩子——swap 拆为导出原语
  * swapEntityIntoPlace，测试以真实 rename 失败（staging 消失/EPERM）组合原语验证回滚
  * （与批 1 state-worker 同法：生产零钩子）。投影记录同键并发写收敛为最后写入（双方
@@ -63,6 +67,7 @@ import {
   sanitizeEntityFolderName,
   writeResidueMarker,
 } from "../core/entity-state.js";
+import { CCSKI_RESIDUE_MARKER_FILENAME } from "../core/discovery.js";
 import { emptyState, StateStore } from "../core/state-store.js";
 import { parseSkillFile } from "../core/parser.js";
 
@@ -197,6 +202,7 @@ function toSnapshot(record: EntityRecord): EntitySnapshot {
     updatedAt: record.updatedAt,
   };
 }
+export { toSnapshot };
 
 function describeExisting(record: EntityRecord): EnsureEntityExisting {
   return {
@@ -209,14 +215,19 @@ function describeExisting(record: EntityRecord): EnsureEntityExisting {
 }
 
 /**
- * 把 source staging 目录复制进实体根（同 scope rename 安全）。失败时清理 staging
- * 并原样重抛底层错误（调用方按 errno 分类）。供 ensureEntity 与回滚收据测试组合。
+ * 把 source staging 目录复制进实体根（同 scope rename 安全）。复制完成后摘除残留
+ * marker（批 4 修正：marker 字节含 pid/时间戳，留在内容树里会让 folder-hash revision
+ * 不可复现——同内容换新恒误判 updated、崩溃恢复的 hash 一致性断言失真）。摘除后到
+ * rename 之间的崩溃窗口留下无 marker 的保留名残留，由清扫的保守面保留（no-marker
+ * 不删）并归批 5 repair 收敛。失败时清理 staging 并原样重抛底层错误（调用方按 errno
+ * 分类）。供 ensureEntity/updateEntity 与回滚收据测试组合。
  */
 export function stageEntityCopy(sourceDir: string, entityRoot: string): string {
   const staging = mkdtempSync(join(entityRoot, STAGING_PREFIX));
   writeResidueMarker(staging, "staging");
   try {
     cpSync(sourceDir, staging, { recursive: true, force: true });
+    rmSync(join(staging, CCSKI_RESIDUE_MARKER_FILENAME), { force: true });
     return staging;
   } catch (error) {
     try {
@@ -331,10 +342,15 @@ interface TransformTables {
 }
 
 type TransformOutcome =
-  | { kind: "apply" }
+  | {
+      kind: "apply";
+      /** 本轮提交中要退役的表键（批 4 remove/GC 的记录删除；raw 不兼容条目仍按键原样保留） */
+      deleteEntityKeys?: readonly string[];
+      deleteProjectionKeys?: readonly string[];
+    }
   | { kind: "reject"; code: string; message: string };
 
-type CommitTransformResult =
+export type CommitTransformResult =
   | { kind: "committed"; generation: number }
   | { kind: "rejected"; code: string; message: string }
   | { kind: "recovery-required"; detail: string }
@@ -343,9 +359,10 @@ type CommitTransformResult =
 /**
  * generation CAS 提交原语：读 → 纯变换（对 fresh 表重建决策，冲突即拒绝）→
  * commit；STATE_GENERATION_CONFLICT 时重读重建再试（禁盲覆盖）。raw 表中本层
- * 不识别的条目原样保留（集合读取丢弃≠改写持久化的破坏性清理）。
+ * 不识别的条目原样保留（集合读取丢弃≠改写持久化的破坏性清理）；删除只按
+ * transform 显式给出的键退役。批 4 remove/GC/deleteEntity 与 ensure/project 共用。
  */
-async function commitTransform(
+export async function commitTransform(
   store: StateStore,
   transform: (tables: TransformTables) => TransformOutcome
 ): Promise<CommitTransformResult> {
@@ -363,9 +380,13 @@ async function commitTransform(
     if (outcome.kind === "reject") {
       return { kind: "rejected", code: outcome.code, message: outcome.message };
     }
+    const nextEntities = { ...base.entities, ...Object.fromEntries(tables.entities) };
+    for (const key of outcome.deleteEntityKeys ?? []) delete nextEntities[key];
+    const nextProjections = { ...base.projections, ...Object.fromEntries(tables.projections) };
+    for (const key of outcome.deleteProjectionKeys ?? []) delete nextProjections[key];
     const result = await store.commit(base, {
-      entities: { ...base.entities, ...Object.fromEntries(tables.entities) },
-      projections: { ...base.projections, ...Object.fromEntries(tables.projections) },
+      entities: nextEntities,
+      projections: nextProjections,
     });
     if (result.kind === "committed") {
       return { kind: "committed", generation: result.data.generation };
@@ -903,8 +924,9 @@ function isCanonicalEntityRoot(rootPath: string, entityRoot: string): boolean {
     return false;
   }
 }
+export { isCanonicalEntityRoot };
 
-interface MaterializeOutcome {
+export interface MaterializeOutcome {
   ok: boolean;
   code?: "TARGET_DENIED" | "COPY_FAILED" | "IO";
   error?: string;
@@ -913,8 +935,13 @@ interface MaterializeOutcome {
 /**
  * 物化复制（staging→rename，装在投影根内）。EACCES/EROFS = 目标级权限 →
  * TARGET_DENIED；其余复制/换名失败 = COPY_FAILED；staging 建立失败按 errno 分类。
+ * 批 4 update 的逐副本重物化复用本原语（换旧副本走 swapEntityIntoPlace）。
  */
-function materializeCopy(entityPath: string, rootPath: string, projPath: string): MaterializeOutcome {
+export function materializeCopy(
+  entityPath: string,
+  rootPath: string,
+  projPath: string
+): MaterializeOutcome {
   let staging: string;
   try {
     staging = mkdtempSync(join(rootPath, STAGING_PREFIX));
@@ -928,6 +955,9 @@ function materializeCopy(entityPath: string, rootPath: string, projPath: string)
   }
   try {
     cpSync(entityPath, staging, { recursive: true, force: true });
+    // 与 stageEntityCopy 同法：摘除 marker 后才上位（副本内容 = 实体内容，copyHash
+    // guard 的基准恒可复现）
+    rmSync(join(staging, CCSKI_RESIDUE_MARKER_FILENAME), { force: true });
     renameSync(staging, projPath);
     return { ok: true };
   } catch (error) {
@@ -1124,7 +1154,12 @@ export async function projectEntity(options: ProjectEntityOptions): Promise<Proj
       continue;
     }
 
-    const newRecord = (mode: "link" | "materialized", reason: ProjectionReason | undefined): ProjectionRecord => ({
+    const newRecord = (
+      mode: "link" | "materialized",
+      reason: ProjectionReason | undefined,
+      /** 物化副本 guard 基准（copyHash = 副本自身 hash；copyIno = 副本目录 inode） */
+      copy?: { copyHash?: string; copyIno: number }
+    ): ProjectionRecord => ({
       kind: "projection",
       scope,
       rootId,
@@ -1137,6 +1172,19 @@ export async function projectEntity(options: ProjectEntityOptions): Promise<Proj
       entityRevision: entityRecord.revision,
       disabled: false,
       ownership: "ccski",
+      ...(mode === "materialized" && copy !== undefined && copy.copyHash !== undefined
+        ? { copyHash: copy.copyHash }
+        : {}),
+      ...(mode === "materialized" && copy !== undefined ? { copyIno: copy.copyIno } : {}),
+      ...(mode === "materialized" && reason === "pinned"
+        ? {
+            // E4/裁决表 #11：pin = source ref + folder hash 组合落 state（update 据此产 PINNED skip）
+            pin: {
+              ref: entityRecord.provenance.source,
+              folderHash: copy?.copyHash ?? entityRecord.revision,
+            },
+          }
+        : {}),
       createdAt: isoNow(),
       updatedAt: isoNow(),
     });
@@ -1172,7 +1220,20 @@ export async function projectEntity(options: ProjectEntityOptions): Promise<Proj
       } else {
         if (projSt.isDirectory() && !projSt.isSymbolicLink()) {
           if (!existingRecord) {
-            pendingRecords.set(recordKey, newRecord("materialized", materializeReason));
+            // 补记既有副本：copyHash = 副本实际内容 hash（可能与实体已分叉，guard 基准以副本为准）
+            let adoptedHash: string | undefined;
+            try {
+              adoptedHash = await computeSkillFolderHash(projPath);
+            } catch {
+              adoptedHash = undefined; // hash 失败 → 无 guard 基准（remove/update 回退 entityRevision 保守拒绝）
+            }
+            pendingRecords.set(
+              recordKey,
+              newRecord("materialized", materializeReason, {
+                ...(adoptedHash !== undefined ? { copyHash: adoptedHash } : {}),
+                copyIno: projSt.ino,
+              })
+            );
           }
           results.push({
             ...rootBase,
@@ -1214,7 +1275,15 @@ export async function projectEntity(options: ProjectEntityOptions): Promise<Proj
             results.push(failedRoot(rootBase, materialized.code ?? "IO", materialized.error ?? "materialization failed"));
             continue;
           }
-          pendingRecords.set(recordKey, newRecord("materialized", "symlink-unavailable"));
+          const copySt = lstatSafe(projPath);
+          pendingRecords.set(
+            recordKey,
+            newRecord(
+              "materialized",
+              "symlink-unavailable",
+              copySt ? { copyHash: entityRecord.revision, copyIno: copySt.ino } : undefined
+            )
+          );
           results.push({
             ...rootBase,
             status: "projected",
@@ -1242,7 +1311,15 @@ export async function projectEntity(options: ProjectEntityOptions): Promise<Proj
       results.push(failedRoot(rootBase, materialized.code ?? "IO", materialized.error ?? "materialization failed"));
       continue;
     }
-    pendingRecords.set(recordKey, newRecord("materialized", materializeReason));
+    const copySt = lstatSafe(projPath);
+    pendingRecords.set(
+      recordKey,
+      newRecord(
+        "materialized",
+        materializeReason,
+        copySt ? { copyHash: entityRecord.revision, copyIno: copySt.ino } : undefined
+      )
+    );
     results.push({
       ...rootBase,
       status: "projected",

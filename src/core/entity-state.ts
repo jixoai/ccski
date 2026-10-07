@@ -122,10 +122,10 @@ export const EntityRecordSchema = z
     provenance: EntityProvenanceSchema,
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
-    /** replace 换新失败后的诚实记录（R4：state 记失败 generation） */
+    /** replace/update 换新失败后的诚实记录（R4：state 记失败 generation） */
     lastFailure: z
       .object({
-        operation: z.literal("replace"),
+        operation: z.enum(["replace", "update"]),
         at: z.string().min(1),
         detail: z.string().min(1),
       })
@@ -154,6 +154,23 @@ export const ProjectionRecordSchema = z
     ownership: z.literal("ccski"),
     /** replace 换新后 link 投影的 stale 标注（R8；下次 verify 报 STALE_PROJECTION） */
     stale: z.boolean().optional(),
+    /**
+     * pin 记录（E4/裁决表 #11）：source ref + folder hash 组合落 state；update 遇
+     * 此投影产出 PINNED skip 收据，副本永不重物化。reason:"pinned" 时由
+     * projectEntity 写入；旧记录缺此字段按 reason 判定 skip。
+     */
+    pin: z
+      .object({ ref: z.string().min(1), folderHash: z.string().min(1) })
+      .strict()
+      .optional(),
+    /**
+     * 物化副本自身 hash guard（spec: Ownership-first removal「the copy's own
+     * revision/inode guard」）：remove/update 的 GUARD_PROJECTION 判定基准；
+     * 缺省（批 3 记录）回退 entityRevision。禁用换名/重物化后随 copy 刷新。
+     */
+    copyHash: z.string().min(1).optional(),
+    /** 物化副本目录 inode（last write 时刻 lstat.ino；重物化后刷新；换体检测第二判据） */
+    copyIno: z.number().int().nonnegative().optional(),
     createdAt: z.string().min(1),
     updatedAt: z.string().min(1),
   })
